@@ -1,0 +1,193 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Connection testing doc
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // User & Chef Profiles
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isOwner(userId)
+        && incoming().id == userId
+        && incoming().displayName is string
+        && incoming().displayName.size() > 0
+        && incoming().displayName.size() <= 100;
+      allow update: if isOwner(userId)
+        || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['ratingAverage', 'ratingCount', 'subscriberCount', 'followerCount']));
+      allow delete: if false;
+
+      // User bookmarked recipe favourites
+      match /favourites/{favouriteId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && incoming().userId == userId
+          && isValidId(incoming().recipeId);
+        allow delete: if isOwner(userId);
+      }
+
+      // User bookmarked video favourites
+      match /video_favourites/{videoFavId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && incoming().userId == userId
+          && isValidId(incoming().videoId);
+        allow delete: if isOwner(userId);
+      }
+
+      // User notifications
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId);
+        allow create: if isSignedIn();
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Recipes
+    match /recipes/{recipeId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && incoming().authorId == request.auth.uid
+        && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150
+        && incoming().category is string
+        && incoming().cuisine is string;
+      allow update: if isSignedIn()
+        && (
+          // Chef author update
+          (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
+          // Or rating/likes update by users
+          || (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'ratingAverage', 'ratingCount']))
+        );
+      allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+
+      // Recipe Comments
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn()
+          && incoming().userId == request.auth.uid
+          && incoming().content is string && incoming().content.size() > 0 && incoming().content.size() <= 2000;
+        allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      }
+    }
+
+    // Cooking Videos
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && incoming().authorId == request.auth.uid
+        && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150
+        && incoming().videoUrl is string;
+      allow update: if isSignedIn()
+        && (
+          (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
+          || (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'viewCount']))
+        );
+      allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+
+      // Video Comments
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn()
+          && incoming().userId == request.auth.uid
+          && incoming().content is string && incoming().content.size() > 0 && incoming().content.size() <= 2000;
+        allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      }
+
+      // Universal Video Chunks for Cross-Device Playback
+      match /chunks/{chunkId} {
+        allow read: if true;
+        allow create, update: if isSignedIn();
+        allow delete: if isSignedIn();
+      }
+    }
+
+    // Subscriptions
+    match /subscriptions/{subscriptionId} {
+      allow read: if isSignedIn()
+        && (resource.data.userId == request.auth.uid || resource.data.chefId == request.auth.uid);
+      allow create: if isSignedIn()
+        && incoming().userId == request.auth.uid
+        && isValidId(incoming().chefId);
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Chef Communities and Settings
+    match /communities/{chefId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(chefId);
+
+      // VIP Community Messages
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && incoming().senderId == request.auth.uid
+          && incoming().text is string && incoming().text.size() > 0 && incoming().text.size() <= 1000;
+        allow delete: if isSignedIn() && (existing().senderId == request.auth.uid || chefId == request.auth.uid);
+      }
+    }
+
+    // Chef Reviews & Ratings
+    match /chefs/{chefId}/reviews/{reviewId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Customer Support Tickets
+    match /support_tickets/{ticketId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || !('userId' in resource.data));
+      allow create: if true;
+      allow update: if isSignedIn();
+    }
+
+    // Live Support Chat Messages
+    match /support_chats/{chatId}/messages/{messageId} {
+      allow read, create: if true;
+    }
+
+    // Community Reports
+    match /community_reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // Masterclass Registrations
+    match /masterclass_registrations/{registrationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

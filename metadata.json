@@ -1,0 +1,8 @@
+{
+  "name": "DellyChow",
+  "description": "Responsive cooking and recipe-sharing platform connecting chefs and food lovers worldwide. Discover recipes, post culinary videos, and join premium chef communities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

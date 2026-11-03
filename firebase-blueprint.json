@@ -1,0 +1,270 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account information and chef public profile data.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User identifier matching auth UID." },
+        "email": { "type": "string", "description": "Email address of user." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "photoURL": { "type": "string", "description": "Profile picture URL." },
+        "role": { "type": "string", "enum": ["user", "chef"], "description": "Role in the community: user or chef." },
+        "bio": { "type": "string", "description": "Chef or user biography." },
+        "specialty": { "type": "string", "description": "Culinary specialty or favorite cuisine." },
+        "experienceYears": { "type": "number", "description": "Years of professional or amateur culinary experience." },
+        "premiumPriceMonthly": { "type": "number", "description": "Monthly price for premium VIP membership in USD." },
+        "perks": { "type": "string", "description": "Exclusive perks provided to VIP subscribers." },
+        "subscriberCount": { "type": "number", "description": "Total active VIP subscribers." },
+        "followerCount": { "type": "number", "description": "Total followers count." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Account update timestamp." }
+      },
+      "required": ["id", "displayName", "role"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "Culinary recipe shared by chefs or food creators.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique recipe ID." },
+        "authorId": { "type": "string", "description": "Chef auth UID who created the recipe." },
+        "authorName": { "type": "string", "description": "Chef display name." },
+        "authorPhoto": { "type": "string", "description": "Chef avatar URL." },
+        "title": { "type": "string", "description": "Name of the meal or recipe." },
+        "description": { "type": "string", "description": "Brief description of the dish." },
+        "category": { "type": "string", "enum": ["breakfast", "lunch", "dinner", "desserts", "snacks"], "description": "Meal category." },
+        "cuisine": { "type": "string", "description": "Culinary tradition or cuisine origin." },
+        "prepTimeMinutes": { "type": "number", "description": "Preparation time in minutes." },
+        "cookTimeMinutes": { "type": "number", "description": "Cooking time in minutes." },
+        "servings": { "type": "number", "description": "Number of servings produced." },
+        "ingredients": { "type": "array", "description": "List of ingredient strings with measurements." },
+        "steps": { "type": "array", "description": "Ordered list of step instructions." },
+        "imageUrl": { "type": "string", "description": "Food picture URL." },
+        "videoUrl": { "type": "string", "description": "Optional cooking video tutorial URL." },
+        "isPremium": { "type": "boolean", "description": "Whether this recipe is restricted to VIP subscribers." },
+        "ratingAverage": { "type": "number", "description": "Average review rating from 1 to 5." },
+        "ratingCount": { "type": "number", "description": "Total reviews count." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Publish timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp." }
+      },
+      "required": ["id", "authorId", "title", "category", "cuisine", "ingredients", "steps"]
+    },
+    "CookingVideo": {
+      "title": "CookingVideo",
+      "description": "Video tutorial showcasing meal preparation techniques.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Video identifier." },
+        "authorId": { "type": "string", "description": "Chef auth UID." },
+        "authorName": { "type": "string", "description": "Chef display name." },
+        "authorPhoto": { "type": "string", "description": "Chef avatar URL." },
+        "title": { "type": "string", "description": "Video title." },
+        "description": { "type": "string", "description": "Video description." },
+        "videoUrl": { "type": "string", "description": "Video stream or video file link." },
+        "thumbnailUrl": { "type": "string", "description": "Thumbnail preview image." },
+        "durationMinutes": { "type": "number", "description": "Video duration in minutes." },
+        "category": { "type": "string", "description": "Recipe category." },
+        "recipeId": { "type": "string", "description": "Optional linked recipe document ID." },
+        "isPremium": { "type": "boolean", "description": "Whether this video tutorial requires VIP membership." },
+        "viewCount": { "type": "number", "description": "Total views count." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Publish date." }
+      },
+      "required": ["id", "authorId", "title", "videoUrl"]
+    },
+    "VideoChunk": {
+      "title": "VideoChunk",
+      "description": "Base64 encoded binary video chunk for universal cross-device streaming.",
+      "type": "object",
+      "properties": {
+        "chunkIndex": { "type": "number", "description": "Sequence index of chunk." },
+        "totalChunks": { "type": "number", "description": "Total number of chunks." },
+        "data": { "type": "string", "description": "Base64 binary video slice." },
+        "mimeType": { "type": "string", "description": "Video mime type." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp." }
+      },
+      "required": ["chunkIndex", "totalChunks", "data"]
+    },
+    "Favourite": {
+      "title": "Favourite",
+      "description": "Bookmarked recipe for quick retrieval.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Favourite record ID." },
+        "userId": { "type": "string", "description": "User UID who bookmarked." },
+        "recipeId": { "type": "string", "description": "Recipe document ID." },
+        "recipeTitle": { "type": "string", "description": "Recipe meal name." },
+        "recipeImage": { "type": "string", "description": "Recipe cover photo." },
+        "category": { "type": "string", "description": "Recipe category." },
+        "cuisine": { "type": "string", "description": "Recipe cuisine." },
+        "addedAt": { "type": "string", "format": "date-time", "description": "Bookmark timestamp." }
+      },
+      "required": ["id", "userId", "recipeId"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "User review comment on a recipe.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Comment ID." },
+        "recipeId": { "type": "string", "description": "Recipe ID." },
+        "userId": { "type": "string", "description": "Author UID." },
+        "userName": { "type": "string", "description": "Author name." },
+        "userPhoto": { "type": "string", "description": "Author avatar." },
+        "content": { "type": "string", "description": "Comment text body." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Comment timestamp." }
+      },
+      "required": ["id", "recipeId", "userId", "userName", "content"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "Active VIP membership subscription to a chef's community.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Subscription record ID." },
+        "userId": { "type": "string", "description": "Subscribing user UID." },
+        "chefId": { "type": "string", "description": "Chef UID subscribed to." },
+        "plan": { "type": "string", "enum": ["monthly", "annual"], "description": "Plan billing cycle." },
+        "status": { "type": "string", "enum": ["active", "cancelled"], "description": "Subscription status." },
+        "startDate": { "type": "string", "format": "date-time", "description": "Subscription start date." },
+        "expiresAt": { "type": "string", "format": "date-time", "description": "Subscription expiration date." }
+      },
+      "required": ["id", "userId", "chefId", "plan", "status"]
+    },
+    "CommunityMessage": {
+      "title": "CommunityMessage",
+      "description": "Chat message inside a chef's private VIP community chat room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID." },
+        "chefId": { "type": "string", "description": "Chef community ID." },
+        "senderId": { "type": "string", "description": "Sender UID." },
+        "senderName": { "type": "string", "description": "Sender display name." },
+        "senderPhoto": { "type": "string", "description": "Sender avatar URL." },
+        "senderRole": { "type": "string", "description": "Sender role: chef or member." },
+        "text": { "type": "string", "description": "Chat message body." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Message timestamp." }
+      },
+      "required": ["id", "chefId", "senderId", "senderName", "text"]
+    },
+    "VideoFavourite": {
+      "title": "VideoFavourite",
+      "description": "Bookmarked cooking video for user favorites collection.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Bookmark ID." },
+        "userId": { "type": "string", "description": "User UID." },
+        "videoId": { "type": "string", "description": "Video document ID." },
+        "videoTitle": { "type": "string", "description": "Title of the video." },
+        "thumbnailUrl": { "type": "string", "description": "Video thumbnail." },
+        "addedAt": { "type": "string", "format": "date-time", "description": "Bookmark timestamp." }
+      },
+      "required": ["userId", "videoId"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "Real-time user alerts and chef update notifications.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Notification ID." },
+        "userId": { "type": "string", "description": "Target user UID." },
+        "title": { "type": "string", "description": "Notification headline." },
+        "message": { "type": "string", "description": "Notification detail." },
+        "read": { "type": "boolean", "description": "Read status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["userId", "title", "message", "read"]
+    },
+    "ChefReview": {
+      "title": "ChefReview",
+      "description": "Rating and written feedback review for a chef.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Review document ID." },
+        "chefId": { "type": "string", "description": "Chef ID." },
+        "userId": { "type": "string", "description": "Reviewer UID." },
+        "rating": { "type": "number", "description": "Rating score from 1 to 5." },
+        "comment": { "type": "string", "description": "Written feedback review." }
+      },
+      "required": ["chefId", "userId", "rating", "comment"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer support issue or complaint ticket.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Ticket reference ID." },
+        "subject": { "type": "string", "description": "Ticket subject." },
+        "message": { "type": "string", "description": "Issue explanation." },
+        "status": { "type": "string", "description": "Status of ticket." }
+      },
+      "required": ["subject", "message", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and chef profiles with biographies and specialties."
+    },
+    "/recipes/{recipeId}": {
+      "schema": "Recipe",
+      "description": "Published recipes accessible for exploration."
+    },
+    "/videos/{videoId}": {
+      "schema": "CookingVideo",
+      "description": "Published cooking video tutorials."
+    },
+    "/users/{userId}/favourites/{favouriteId}": {
+      "schema": "Favourite",
+      "description": "User's bookmarked favorite recipes."
+    },
+    "/users/{userId}/video_favourites/{videoFavId}": {
+      "schema": "VideoFavourite",
+      "description": "User's bookmarked cooking videos."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "UserNotification",
+      "description": "User's notification alerts."
+    },
+    "/recipes/{recipeId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "User comments on recipes."
+    },
+    "/videos/{videoId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "User comments on cooking videos."
+    },
+    "/videos/{videoId}/chunks/{chunkId}": {
+      "schema": "VideoChunk",
+      "description": "Base64 binary video chunks enabling video playback on any mobile phone, tablet, and desktop device."
+    },
+    "/subscriptions/{subscriptionId}": {
+      "schema": "Subscription",
+      "description": "Chef VIP community subscriptions."
+    },
+    "/communities/{chefId}": {
+      "schema": "UserProfile",
+      "description": "Community settings and pinned announcements."
+    },
+    "/communities/{chefId}/messages/{messageId}": {
+      "schema": "CommunityMessage",
+      "description": "VIP community chat messages for paying members."
+    },
+    "/chefs/{chefId}/reviews/{reviewId}": {
+      "schema": "ChefReview",
+      "description": "Chef reviews and ratings."
+    },
+    "/support_tickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Customer support and complaint tickets."
+    },
+    "/support_chats/{chatId}/messages/{messageId}": {
+      "schema": "CommunityMessage",
+      "description": "Live support chat messages."
+    },
+    "/community_reports/{reportId}": {
+      "schema": "CommunityMessage",
+      "description": "Reports on flagged messages."
+    }
+  }
+}
