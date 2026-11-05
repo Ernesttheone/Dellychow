@@ -258,6 +258,145 @@ export interface CommunityReport {
   createdAt: string;
 }
 
+// Feature 1: Shopping & Ingredient Integration Types
+export type IngredientCategory = 
+  | 'Produce' 
+  | 'Dairy & Refrigerated' 
+  | 'Pantry & Dry Goods' 
+  | 'Meat & Seafood' 
+  | 'Spices & Seasonings' 
+  | 'Bakery' 
+  | 'Beverages' 
+  | 'Other';
+
+export interface ShoppingListItem {
+  id: string;
+  name: string;
+  quantity: number | string;
+  unit: string;
+  category: IngredientCategory;
+  purchased: boolean;
+  recipeSource?: string;
+  recipeId?: string;
+  notes?: string;
+}
+
+export interface ShoppingList {
+  id: string;
+  userId: string;
+  name: string;
+  notes?: string;
+  items: ShoppingListItem[];
+  recipeIds?: string[];
+  recipeTitles?: string[];
+  isArchived?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroceryService {
+  id: 'instacart' | 'whole_foods' | 'amazon_fresh' | 'kroger';
+  name: string;
+  logo: string;
+  tagline: string;
+  supported: boolean;
+  estimatedDeliveryTime: string;
+}
+
+export interface GroceryMatchItem {
+  shoppingItemId: string;
+  originalName: string;
+  originalQuantity: string;
+  matchedName: string;
+  matchedBrand?: string;
+  status: 'available' | 'substituted' | 'unavailable';
+  suggestedSubstitute?: {
+    name: string;
+    brand?: string;
+    price: number;
+    reason: string;
+  };
+  acceptedSubstitute?: boolean;
+  selectedForTransfer: boolean;
+  estimatedPrice?: number;
+}
+
+// Feature 2: Cooking Challenges & Competitions Types
+export type ChallengeType = 'weekly' | 'monthly';
+export type ChallengeStatus = 'active' | 'upcoming' | 'voting' | 'completed';
+
+export interface Challenge {
+  id: string;
+  title: string;
+  theme: string;
+  description: string;
+  coverImage: string;
+  type: ChallengeType;
+  status: ChallengeStatus;
+  startDate: string;
+  submissionDeadline: string;
+  votingPeriodStart: string;
+  votingPeriodEnd: string;
+  rules: string[];
+  requiredIngredients?: string[];
+  formatRequirements?: string;
+  prizes?: {
+    firstPlace: string;
+    secondPlace?: string;
+    thirdPlace?: string;
+  };
+  badgesAwarded: {
+    participation: string;
+    winner: string;
+  };
+  entryCount: number;
+  voteCount?: number;
+  winnerEntryId?: string;
+  winnerUserId?: string;
+  winnerUserName?: string;
+  winnerDishTitle?: string;
+  createdAt: string;
+}
+
+export interface ChallengeEntry {
+  id: string;
+  challengeId: string;
+  challengeTitle: string;
+  userId: string;
+  userName: string;
+  userPhoto?: string;
+  userRole: UserRole;
+  dishTitle: string;
+  caption?: string;
+  mediaUrls: string[];
+  mediaType: 'image' | 'video' | 'mixed';
+  voteCount: number;
+  status: 'eligible' | 'winner' | 'runner_up';
+  submittedAt: string;
+  updatedAt?: string;
+}
+
+export interface ChallengeVote {
+  id: string;
+  challengeId: string;
+  entryId: string;
+  userId: string;
+  votedAt: string;
+}
+
+export interface UserBadge {
+  id: string;
+  userId: string;
+  badgeId: string;
+  title: string;
+  description: string;
+  icon: string;
+  challengeId?: string;
+  challengeTitle?: string;
+  category: 'participation' | 'winner' | 'mastery';
+  earnedAt: string;
+}
+
 export type PendingAction = 
   | { type: 'comment_recipe'; recipeId: string; content: string; targetTitle?: string }
   | { type: 'comment_video'; videoId: string; content: string; targetTitle?: string }
@@ -266,5 +405,8 @@ export type PendingAction =
   | { type: 'follow_chef'; chefId: string; chefName: string }
   | { type: 'bookmark_video'; video: CookingVideo }
   | { type: 'watch_video'; video: CookingVideo }
-  | { type: 'register_masterclass'; masterclass: Masterclass };
+  | { type: 'register_masterclass'; masterclass: Masterclass }
+  | { type: 'add_to_shopping_list'; recipe: Recipe }
+  | { type: 'submit_challenge_entry'; challengeId: string }
+  | { type: 'vote_challenge_entry'; challengeId: string; entryId: string };
 

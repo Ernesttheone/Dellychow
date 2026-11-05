@@ -213,6 +213,20 @@ export const RecipeService = {
     }
   },
 
+  // Update video
+  async updateVideo(videoId: string, updates: Partial<CookingVideo>): Promise<void> {
+    const docRef = doc(db, 'videos', videoId);
+    try {
+      const cleanUpdates = cleanUndefined({
+        ...updates,
+        updatedAt: new Date().toISOString()
+      });
+      await updateDoc(docRef, cleanUpdates);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `videos/${videoId}`);
+    }
+  },
+
   // Listen to VIP community group chat
   listenToCommunityMessages(chefId: string, callback: (messages: CommunityMessage[]) => void) {
     const path = `communities/${chefId}/messages`;

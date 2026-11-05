@@ -14,7 +14,8 @@ import {
   ArrowLeft,
   Lock,
   Send,
-  Timer
+  Timer,
+  ShoppingCart
 } from 'lucide-react';
 import { Recipe, Comment } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +30,7 @@ interface RecipeDetailPageProps {
   onSelectChef: (chefId: string) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup', role?: any) => void;
+  onAddToShoppingList?: (recipe: Recipe) => void;
 }
 
 export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
@@ -36,7 +38,8 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   onBack,
   onSelectChef,
   onRequestSubscribe,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onAddToShoppingList
 }) => {
   const { currentUser, userProfile, isRecipeBookmarked, toggleBookmark, isSubscribedToChef, setPendingAction } = useAuth();
   
@@ -368,32 +371,46 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
         <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-24">
           
           <div className="p-6 rounded-3xl bg-white border border-stone-200/80 shadow-xs space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
               <h3 className="font-serif-display text-xl font-bold text-stone-900">
                 Ingredients
               </h3>
 
-              {/* Servings Adjuster */}
-              <div className="flex items-center gap-2 bg-stone-100 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setServingsMultiplier(m => Math.max(0.5, m - 0.5))}
-                  className="p-1 text-stone-600 hover:text-stone-900 rounded-lg hover:bg-white"
-                  title="Decrease servings"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
-                <span className="text-xs font-semibold text-stone-800 px-1 tabular-nums">
-                  {currentServings}p
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setServingsMultiplier(m => m + 0.5)}
-                  className="p-1 text-stone-600 hover:text-stone-900 rounded-lg hover:bg-white"
-                  title="Increase servings"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex items-center gap-2">
+                {onAddToShoppingList && (
+                  <button
+                    type="button"
+                    onClick={() => onAddToShoppingList(recipe)}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Add ingredients to shopping list"
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Add to List</span>
+                  </button>
+                )}
+
+                {/* Servings Adjuster */}
+                <div className="flex items-center gap-2 bg-stone-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setServingsMultiplier(m => Math.max(0.5, m - 0.5))}
+                    className="p-1 text-stone-600 hover:text-stone-900 rounded-lg hover:bg-white"
+                    title="Decrease servings"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-xs font-semibold text-stone-800 px-1 tabular-nums">
+                    {currentServings}p
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setServingsMultiplier(m => m + 0.5)}
+                    className="p-1 text-stone-600 hover:text-stone-900 rounded-lg hover:bg-white"
+                    title="Increase servings"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 

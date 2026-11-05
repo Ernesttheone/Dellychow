@@ -20,6 +20,9 @@ import { ChefProfilePage } from './pages/ChefProfilePage';
 import { PremiumPage } from './pages/PremiumPage';
 import { AccountPage } from './pages/AccountPage';
 import { UserProfilePage } from './pages/UserProfilePage';
+import { ShoppingListsPage } from './pages/ShoppingListsPage';
+import { ChallengesPage } from './pages/ChallengesPage';
+import { AddIngredientsModal } from './components/shopping/AddIngredientsModal';
 
 import { ChefDashboard } from './pages/chef/ChefDashboard';
 import { ChefCreateRecipe } from './pages/chef/ChefCreateRecipe';
@@ -27,6 +30,7 @@ import { ChefUploadVideo } from './pages/chef/ChefUploadVideo';
 import { ChefMyRecipes } from './pages/chef/ChefMyRecipes';
 import { ChefCommunity } from './pages/chef/ChefCommunity';
 import { ASSET_IMAGES } from './assets/images';
+import { syncPublishedVideosToServer } from './lib/videoStorage';
 
 function AppContent() {
   const { 
@@ -69,6 +73,30 @@ function AppContent() {
     initialCode: null
   });
   const [videoCleanupOpen, setVideoCleanupOpen] = useState(false);
+  const [shoppingModalOpen, setShoppingModalOpen] = useState(false);
+  const [shoppingModalRecipes, setShoppingModalRecipes] = useState<Recipe[]>([]);
+  const [shoppingTargetListId, setShoppingTargetListId] = useState<string | undefined>();
+
+  const handleAddToShoppingList = (recipe: Recipe) => {
+    if (!currentUser) {
+      handleOpenAuthModal('login');
+      return;
+    }
+    setShoppingModalRecipes([recipe]);
+    setShoppingTargetListId(undefined);
+    setShoppingModalOpen(true);
+  };
+
+  const handleCombineToShoppingList = (selectedRecipes: Recipe[]) => {
+    if (!currentUser) {
+      handleOpenAuthModal('login');
+      return;
+    }
+    if (selectedRecipes.length === 0) return;
+    setShoppingModalRecipes(selectedRecipes);
+    setShoppingTargetListId(undefined);
+    setShoppingModalOpen(true);
+  };
 
   // Check URL parameters for password reset links (e.g. ?mode=resetPassword&oobCode=XYZ)
   useEffect(() => {
@@ -117,6 +145,13 @@ function AppContent() {
 
     const unsubVideos = RecipeService.listenToVideos((loadedVideos) => {
       setVideos(loadedVideos);
+      syncPublishedVideosToServer(loadedVideos, async (videoId, newUrl) => {
+        try {
+          await RecipeService.updateVideo(videoId, { videoUrl: newUrl });
+        } catch (err) {
+          console.warn('Could not update video with synced server URL:', err);
+        }
+      });
     });
 
     return () => {
@@ -274,6 +309,7 @@ function AppContent() {
             onSelectChef={handleSelectChef}
             onRequestSubscribe={handleOpenSubscribe}
             onOpenAuthModal={handleOpenAuthModal}
+            onAddToShoppingList={handleAddToShoppingList}
           />
         )}
 
@@ -295,6 +331,22 @@ function AppContent() {
             onSelectChef={handleSelectChef}
             onPlayVideo={(video) => setActiveVideoModal(video)}
             onRequestSubscribe={handleOpenSubscribe}
+            onNavigate={handleNavigate}
+            onOpenAuthModal={handleOpenAuthModal}
+            onCreateShoppingList={handleCombineToShoppingList}
+          />
+        )}
+
+        {currentView === 'shopping-lists' && (
+          <ShoppingListsPage
+            onNavigate={handleNavigate}
+            onOpenAuthModal={handleOpenAuthModal}
+            onSelectRecipe={handleSelectRecipe}
+          />
+        )}
+
+        {currentView === 'challenges' && (
+          <ChallengesPage
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
           />
@@ -444,6 +496,16 @@ function AppContent() {
       <SupportFAQModal
         isOpen={supportModalOpen}
         onClose={() => setSupportModalOpen(false)}
+      />
+
+      <AddIngredientsModal
+        isOpen={shoppingModalOpen}
+        onClose={() => setShoppingModalOpen(false)}
+        recipes={shoppingModalRecipes}
+        targetListId={shoppingTargetListId}
+        onSuccess={(listId) => {
+          setCurrentView('shopping-lists');
+        }}
       />
 
     </div>

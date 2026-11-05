@@ -283,7 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUserProfile(newProfile);
       return newProfile;
     } catch (err: any) {
-      console.error("Account creation failed:", err);
+      console.warn("Account creation notice:", err?.code || err?.message || err);
       throw err;
     }
   };
@@ -314,7 +314,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return fallbackProfile;
       }
     } catch (err: any) {
-      console.error("Login failed:", err);
+      console.warn("Login notice:", err?.code || err?.message || err);
       throw err;
     }
   };
@@ -357,7 +357,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return initialProfile;
       }
     } catch (err: any) {
-      console.error("Sign in failed:", err);
+      console.warn("Sign in notice:", err?.code || err?.message || err);
       throw err;
     }
   };
@@ -367,7 +367,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fbSignOut(auth);
       setUserProfile(null);
     } catch (err) {
-      console.error("Sign out failed:", err);
+      console.warn("Sign out notice:", err);
     }
   };
 

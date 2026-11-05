@@ -18,13 +18,15 @@ import {
   Film,
   Check,
   Loader2,
-  FlipHorizontal
+  FlipHorizontal,
+  Globe,
+  Link as LinkIcon
 } from 'lucide-react';
 import { Recipe, CookingVideo } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
 import { ASSET_IMAGES } from '../../assets/images';
-import { saveVideoBlob, extractVideoMetadataAndThumbnail, uploadVideoChunksToFirestore } from '../../lib/videoStorage';
+import { saveVideoBlob, extractVideoMetadataAndThumbnail, uploadVideoChunksToFirestore, uploadVideoToServer } from '../../lib/videoStorage';
 
 interface ChefUploadVideoProps {
   recipes: Recipe[];
@@ -54,8 +56,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   const [carbs, setCarbs] = useState('');
   const [fat, setFat] = useState('');
 
-  // Video Submission State (Recorded or Uploaded)
-  const [videoSourceType, setVideoSourceType] = useState<'none' | 'record' | 'upload'>('none');
+  // Video Submission State (Recorded, Uploaded, or Web URL)
+  const [videoSourceType, setVideoSourceType] = useState<'none' | 'record' | 'upload' | 'url'>('none');
+  const [customVideoUrl, setCustomVideoUrl] = useState('');
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [videoFileName, setVideoFileName] = useState<string | null>(null);
@@ -348,6 +351,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     setVideoPreviewUrl(null);
     setVideoFileName(null);
     setVideoFileSizeMB(null);
+    setCustomVideoUrl('');
     setVideoSourceType('none');
     setRecordingState('idle');
     stopCameraStream();
@@ -364,8 +368,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     e.preventDefault();
     setErrorMsg('');
 
-    if (!videoBlob) {
-      setErrorMsg('Please record a video or select an existing video from your device.');
+    const hasVideo = videoBlob || (videoSourceType === 'url' && customVideoUrl.trim());
+    if (!hasVideo) {
+      setErrorMsg('Please record a video, select a video file, or enter a video URL.');
       return;
     }
 
@@ -385,7 +390,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
   // Final Confirmed Publish Handler
   const handleConfirmPublish = async () => {
-    if (!currentUser || !videoBlob) return;
+    if (!currentUser) return;
+    const isUrlSource = videoSourceType === 'url' && customVideoUrl.trim();
+    if (!videoBlob && !isUrlSource) return;
 
     setShowConfirmModal(false);
     setSubmitting(true);
@@ -395,32 +402,50 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     try {
       // 1. Generate unique video ID
       const newVideoId = RecipeService.generateVideoId();
+      let finalPublicUrl = '';
 
-      // 2. Save video blob to client storage with progress updates
-      const filename = videoFileName || `video_${Date.now()}.mp4`;
-      const storageResult = await saveVideoBlob(videoBlob, filename, (pct) => {
-        setUploadProgress(Math.round(pct * 0.35));
-        setProgressStatusText(`Caching video locally (${pct}%)...`);
-      });
+      if (isUrlSource) {
+        finalPublicUrl = customVideoUrl.trim();
+        setUploadProgress(70);
+        setProgressStatusText('Linking web video tutorial...');
+      } else if (videoBlob) {
+        const ext = videoBlob.type.includes('webm') ? '.webm' : videoBlob.type.includes('mov') ? '.mov' : '.mp4';
+        const filename = videoFileName || `video_${newVideoId}${ext}`;
 
-      // 3. Sync video chunks to Firestore for cross-device streaming on any mobile, tablet, or desktop
-      setProgressStatusText('Syncing video chunks for all devices (mobile, tablet & desktop)...');
-      await uploadVideoChunksToFirestore(newVideoId, videoBlob, (pct) => {
-        setUploadProgress(35 + Math.round(pct * 0.55)); // 35% to 90%
-        setProgressStatusText(`Uploading video stream (${pct}%)...`);
-      });
+        // 2. Upload video binary directly to server so all food lovers on all devices have permanent streaming access
+        setProgressStatusText('Uploading video masterclass to server...');
+        finalPublicUrl = `/api/videos/stream/${newVideoId}${ext}`;
+
+        try {
+          const uploadResult = await uploadVideoToServer(videoBlob, filename, newVideoId, (pct) => {
+            setUploadProgress(15 + Math.round(pct * 0.7)); // 15% to 85%
+            setProgressStatusText(`Streaming video to server (${pct}%)...`);
+          });
+          if (uploadResult?.url) {
+            finalPublicUrl = uploadResult.url;
+          }
+        } catch (uploadErr) {
+          console.warn('Server upload notice, caching locally:', uploadErr);
+        }
+
+        // 3. Cache in local IndexedDB for fast instant author playback
+        await saveVideoBlob(videoBlob, filename);
+
+        // 4. Also attempt chunk upload for redundant cloud backup
+        uploadVideoChunksToFirestore(newVideoId, videoBlob).catch(() => {});
+      }
 
       setProgressStatusText('Publishing masterclass to your chef profile...');
       setUploadProgress(95);
 
-      // 4. Build clean video payload with cross-device video URL
+      // 5. Build clean video payload with public streaming URL
       const videoData: Omit<CookingVideo, 'id' | 'createdAt'> = {
         authorId: currentUser.uid,
         authorName: userProfile?.displayName || 'Chef',
         authorPhoto: userProfile?.photoURL || ASSET_IMAGES.chefAvatar,
         title: title.trim(),
         description: description.trim(),
-        videoUrl: `dellychow-video://${storageResult.id}?vid=${newVideoId}`,
+        videoUrl: finalPublicUrl,
         thumbnailUrl: thumbnailUrl.trim() || ASSET_IMAGES.trufflePasta,
         durationMinutes: Number(durationMinutes) || 15,
         category: category.trim(),
@@ -528,10 +553,10 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 Video Submission *
               </label>
               <p className="text-xs text-stone-500 mt-0.5">
-                Choose between recording live with your camera or uploading an existing video file.
+                Choose between recording live with your camera, uploading a video file, or pasting a web video link.
               </p>
             </div>
-            {videoBlob && (
+            {(videoBlob || (videoSourceType === 'url' && customVideoUrl.trim())) && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-semibold border border-emerald-200">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Video Ready</span>
@@ -540,37 +565,37 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
           </div>
 
           {/* Option Selector Buttons */}
-          {!videoBlob && !isCameraActive && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {!videoBlob && !isCameraActive && videoSourceType !== 'url' && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               
               {/* Option 1 Button: Record a Video */}
               <button
                 type="button"
                 onClick={() => handleStartCamera()}
                 aria-label="Record a Video"
-                className="p-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-50 hover:border-amber-500 transition-all text-left flex flex-col justify-between gap-4 group focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                className="p-5 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-50 hover:border-amber-500 transition-all text-left flex flex-col justify-between gap-3 group focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                    <Camera className="w-6 h-6" />
+                  <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                    <Camera className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-serif-display text-base font-bold text-stone-900 group-hover:text-amber-800 transition-colors">
-                      Record a New Video
+                    <h4 className="font-serif-display text-sm font-bold text-stone-900 group-hover:text-amber-800 transition-colors">
+                      Record Live
                     </h4>
-                    <p className="text-[11px] text-stone-500">
-                      Use camera & microphone
+                    <p className="text-[10px] text-stone-500">
+                      Camera & mic
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-stone-600 leading-relaxed">
-                  Film your cooking tutorial directly using your mobile phone, tablet, or computer camera.
+                <p className="text-[11px] text-stone-600 leading-relaxed">
+                  Film your cooking tutorial directly using your mobile or computer camera.
                 </p>
 
-                <div className="w-full py-2.5 px-4 rounded-xl bg-amber-600 group-hover:bg-amber-700 text-white text-xs font-bold uppercase tracking-wider text-center flex items-center justify-center gap-2 transition-colors shadow-xs">
-                  <Camera className="w-4 h-4" />
-                  <span>Record a Video</span>
+                <div className="w-full py-2 px-3 rounded-xl bg-amber-600 group-hover:bg-amber-700 text-white text-[11px] font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 transition-colors shadow-xs">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Record</span>
                 </div>
               </button>
 
@@ -579,32 +604,130 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 type="button"
                 onClick={handleTriggerFileInput}
                 aria-label="Upload from Device"
-                className="p-6 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50/60 hover:bg-stone-50 hover:border-stone-500 transition-all text-left flex flex-col justify-between gap-4 group focus:outline-none focus:ring-2 focus:ring-stone-500 cursor-pointer"
+                className="p-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50/60 hover:bg-stone-50 hover:border-stone-500 transition-all text-left flex flex-col justify-between gap-3 group focus:outline-none focus:ring-2 focus:ring-stone-500 cursor-pointer"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-stone-900 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                    <Upload className="w-6 h-6 text-amber-400" />
+                  <div className="w-10 h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                    <Upload className="w-5 h-5 text-amber-400" />
                   </div>
                   <div>
-                    <h4 className="font-serif-display text-base font-bold text-stone-900 group-hover:text-stone-700 transition-colors">
-                      Upload an Existing Video
+                    <h4 className="font-serif-display text-sm font-bold text-stone-900 group-hover:text-stone-700 transition-colors">
+                      Upload File
                     </h4>
-                    <p className="text-[11px] text-stone-500">
-                      MP4, MOV, WebM files
+                    <p className="text-[10px] text-stone-500">
+                      MP4, MOV, WebM
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-stone-600 leading-relaxed">
-                  Choose a previously recorded cooking video stored in your gallery or device files.
+                <p className="text-[11px] text-stone-600 leading-relaxed">
+                  Choose an existing video file saved in your gallery or device folders.
                 </p>
 
-                <div className="w-full py-2.5 px-4 rounded-xl bg-stone-900 group-hover:bg-stone-800 text-white text-xs font-bold uppercase tracking-wider text-center flex items-center justify-center gap-2 transition-colors shadow-xs">
-                  <Upload className="w-4 h-4 text-amber-400" />
-                  <span>Upload from Device</span>
+                <div className="w-full py-2 px-3 rounded-xl bg-stone-900 group-hover:bg-stone-800 text-white text-[11px] font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 transition-colors shadow-xs">
+                  <Upload className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Upload</span>
                 </div>
               </button>
 
+              {/* Option 3 Button: Video URL */}
+              <button
+                type="button"
+                onClick={() => {
+                  stopCameraStream();
+                  setVideoSourceType('url');
+                }}
+                aria-label="Paste Video URL"
+                className="p-5 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 hover:border-blue-500 transition-all text-left flex flex-col justify-between gap-3 group focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-serif-display text-sm font-bold text-stone-900 group-hover:text-blue-800 transition-colors">
+                      Video URL
+                    </h4>
+                    <p className="text-[10px] text-stone-500">
+                      YouTube, Vimeo, MP4
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-stone-600 leading-relaxed">
+                  Link an online tutorial from YouTube, Vimeo, or a public direct video stream.
+                </p>
+
+                <div className="w-full py-2 px-3 rounded-xl bg-blue-600 group-hover:bg-blue-700 text-white text-[11px] font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 transition-colors shadow-xs">
+                  <LinkIcon className="w-3.5 h-3.5" />
+                  <span>Enter Link</span>
+                </div>
+              </button>
+
+            </div>
+          )}
+
+          {/* Option 3 UI: Video URL Input Card */}
+          {videoSourceType === 'url' && (
+            <div className="bg-stone-900 rounded-2xl p-5 text-white border border-stone-800 space-y-4 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                    Online Video Link
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveVideo}
+                  className="text-stone-400 hover:text-white text-xs font-semibold flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Change Source</span>
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-stone-300 mb-1.5 font-medium">
+                  Direct Video URL or Embed Link (YouTube, Vimeo, or hosted MP4):
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={customVideoUrl}
+                    onChange={(e) => setCustomVideoUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
+                    className="flex-1 text-xs px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {customVideoUrl.trim() && (
+                <div className="pt-2 border-t border-stone-800 space-y-2">
+                  <p className="text-[11px] text-stone-400">Stream preview:</p>
+                  <div className="aspect-16/9 bg-black rounded-xl overflow-hidden border border-stone-800 max-h-56">
+                    {customVideoUrl.includes('youtube.com') || customVideoUrl.includes('youtu.be') ? (
+                      <iframe
+                        src={customVideoUrl.includes('watch?v=') 
+                          ? `https://www.youtube.com/embed/${customVideoUrl.split('watch?v=')[1]?.split('&')[0]}`
+                          : customVideoUrl.includes('youtu.be/')
+                          ? `https://www.youtube.com/embed/${customVideoUrl.split('youtu.be/')[1]?.split('?')[0]}`
+                          : customVideoUrl}
+                        title="URL Preview"
+                        className="w-full h-full border-0"
+                        allowFullScreen
+                      />
+                    ) : (
+                      <video
+                        src={customVideoUrl}
+                        controls
+                        playsInline
+                        className="w-full h-full object-contain"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1037,7 +1160,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
           <button
             type="submit"
-            disabled={submitting || !videoBlob}
+            disabled={submitting || (!videoBlob && !(videoSourceType === 'url' && customVideoUrl.trim()))}
             className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
@@ -1087,7 +1210,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
               <div className="flex justify-between text-stone-600 pt-1 border-t border-stone-200">
                 <span className="font-medium">Source:</span>
                 <span className="text-stone-700">
-                  {videoSourceType === 'record' ? 'Camera Recording' : videoFileName || 'Device File'}
+                  {videoSourceType === 'record' ? 'Camera Recording' : videoSourceType === 'url' ? 'Web Video URL' : videoFileName || 'Device File'}
                 </span>
               </div>
             </div>

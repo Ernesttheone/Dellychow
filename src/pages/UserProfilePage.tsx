@@ -22,14 +22,16 @@ import {
   Award,
   Upload,
   Camera,
-  Loader2
+  Loader2,
+  Trophy
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Recipe, CookingVideo } from '../types';
+import { Recipe, CookingVideo, UserBadge } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
 import { UserAvatar } from '../components/UserAvatar';
 import { DEFAULT_AVATARS, getDefaultAvatar } from '../constants/avatars';
 import { processDeviceImage } from '../lib/imageUtils';
+import { ChallengeService } from '../services/challengeService';
 
 interface UserProfilePageProps {
   recipes: Recipe[];
@@ -48,11 +50,23 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   onOpenAuthModal
 }) => {
   const { currentUser, userProfile, favourites, activeSubscriptions, updateProfileData } = useAuth();
-  const [activeTab, setActiveTab] = useState<'favourites' | 'subscriptions' | 'avatars'>('favourites');
+  const [activeTab, setActiveTab] = useState<'favourites' | 'subscriptions' | 'avatars' | 'badges'>('favourites');
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
   const [uploadingDeviceImage, setUploadingDeviceImage] = useState(false);
+  const [badges, setBadges] = useState<UserBadge[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (currentUser) {
+      try {
+        const userBadges = ChallengeService.getUserBadges(currentUser.uid);
+        setBadges(userBadges);
+      } catch (e) {
+        console.warn('Could not load user badges:', e);
+      }
+    }
+  }, [currentUser]);
 
   if (!currentUser || !userProfile) {
     return (
@@ -244,6 +258,19 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         </div>
 
         <div 
+          onClick={() => setActiveTab('badges')}
+          className="p-4 rounded-2xl bg-white border border-stone-200/80 shadow-2xs hover:border-amber-500/50 cursor-pointer transition-all"
+        >
+          <div className="flex items-center gap-2 text-stone-400 text-xs mb-1">
+            <Trophy className="w-3.5 h-3.5 text-amber-600" />
+            <span>Culinary Badges</span>
+          </div>
+          <p className="font-serif-display text-2xl font-bold text-stone-900 tabular-nums">
+            {badges.length}
+          </p>
+        </div>
+
+        <div 
           onClick={() => setActiveTab('avatars')}
           className="p-4 rounded-2xl bg-white border border-stone-200/80 shadow-2xs hover:border-amber-500/50 cursor-pointer transition-all"
         >
@@ -255,24 +282,14 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
             3 Ready
           </p>
         </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-stone-200/80 shadow-2xs">
-          <div className="flex items-center gap-2 text-stone-400 text-xs mb-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-            <span>Verified Status</span>
-          </div>
-          <p className="font-serif-display text-lg font-bold text-emerald-700">
-            Active Foodie
-          </p>
-        </div>
       </div>
 
       {/* 3. Navigation Tabs */}
-      <div className="border-b border-stone-200 flex items-center gap-2 sm:gap-6 text-xs sm:text-sm font-semibold">
+      <div className="border-b border-stone-200 flex items-center gap-2 sm:gap-6 text-xs sm:text-sm font-semibold overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('favourites')}
-          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 ${
+          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'favourites'
               ? 'border-amber-600 text-amber-800'
               : 'border-transparent text-stone-500 hover:text-stone-800'
@@ -284,8 +301,21 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
 
         <button
           type="button"
+          onClick={() => setActiveTab('badges')}
+          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'badges'
+              ? 'border-amber-600 text-amber-800'
+              : 'border-transparent text-stone-500 hover:text-stone-800'
+          }`}
+        >
+          <Trophy className="w-4 h-4" />
+          <span>Culinary Badges ({badges.length})</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('subscriptions')}
-          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 ${
+          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'subscriptions'
               ? 'border-amber-600 text-amber-800'
               : 'border-transparent text-stone-500 hover:text-stone-800'
@@ -298,14 +328,14 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('avatars')}
-          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 ${
+          className={`pb-3 px-1 border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'avatars'
               ? 'border-amber-600 text-amber-800'
               : 'border-transparent text-stone-500 hover:text-stone-800'
           }`}
         >
           <Sparkles className="w-4 h-4" />
-          <span>Default Avatars (3 Options)</span>
+          <span>Default Avatars</span>
         </button>
       </div>
 
@@ -630,6 +660,103 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
               <strong>Culinary Identity Protection:</strong> These three default avatars are vector-crafted to ensure zero loading latency, offline accessibility, and consistent culinary branding across recipe cards, author tags, comments, and chef directories.
             </p>
           </div>
+        </section>
+      )}
+
+      {/* TAB 4: CULINARY BADGES */}
+      {activeTab === 'badges' && (
+        <section className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-xs text-amber-700 font-semibold uppercase tracking-wider mb-1">
+                <Trophy className="w-4 h-4" />
+                <span>Culinary Accolades</span>
+              </div>
+              <h2 className="font-serif-display text-xl sm:text-2xl font-bold text-stone-900">
+                Earned Badges & Competition Honors
+              </h2>
+              <p className="text-xs sm:text-sm text-stone-500 mt-1">
+                Badges awarded for winning cooking challenges, exceptional dish plating, and community culinary milestones.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('challenges')}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors inline-flex items-center gap-2 shrink-0 cursor-pointer shadow-xs"
+            >
+              <Trophy className="w-4 h-4" />
+              <span>Explore Active Challenges</span>
+            </button>
+          </div>
+
+          {badges.length === 0 ? (
+            <div className="p-16 rounded-3xl bg-white border border-stone-200/80 text-center space-y-4 max-w-md mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-2xs">
+                <Trophy className="w-8 h-8" />
+              </div>
+              <h3 className="font-serif-display text-xl font-bold text-stone-900">
+                No Badges Earned Yet
+              </h3>
+              <p className="text-xs text-stone-500 leading-relaxed">
+                Enter your signature dishes into community cooking competitions and earn permanent culinary badges voted on by peer food lovers and verified chef tutors.
+              </p>
+              <button
+                type="button"
+                onClick={() => onNavigate('challenges')}
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors inline-flex items-center gap-2 cursor-pointer shadow-xs"
+              >
+                <span>Enter a Cooking Challenge</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {badges.map((badge) => {
+                const categoryStyles = {
+                  winner: 'bg-gradient-to-br from-amber-50 to-amber-100/60 border-amber-300/80 text-amber-900',
+                  mastery: 'bg-gradient-to-br from-purple-50 to-purple-100/50 border-purple-300/70 text-purple-950',
+                  participation: 'bg-gradient-to-br from-stone-50 to-stone-100/60 border-stone-300/80 text-stone-800'
+                }[badge.category || 'participation'];
+
+                return (
+                  <div
+                    key={badge.id}
+                    className={`p-6 rounded-3xl border shadow-xs space-y-3 transition-transform hover:-translate-y-1 ${categoryStyles}`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="w-14 h-14 rounded-2xl bg-white shadow-sm flex items-center justify-center text-3xl border border-stone-100">
+                        {badge.icon || '🏆'}
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/80 border border-stone-200/80">
+                        {badge.category}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="font-serif-display text-lg font-bold">
+                        {badge.title}
+                      </h4>
+                      <p className="text-xs opacity-80 mt-1 leading-relaxed">
+                        {badge.description}
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-black/5 flex items-center justify-between text-[11px] opacity-75 font-medium">
+                      <span>Awarded {new Date(badge.earnedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('challenges')}
+                        className="hover:underline font-bold"
+                      >
+                        {badge.challengeTitle ? badge.challengeTitle.slice(0, 20) + '...' : 'View Challenge'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 

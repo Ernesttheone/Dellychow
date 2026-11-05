@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bookmark, ArrowRight, UtensilsCrossed, LogIn, Video, Clock } from 'lucide-react';
+import { Bookmark, ArrowRight, UtensilsCrossed, LogIn, Video, Clock, ShoppingCart, CheckSquare, Square, Plus } from 'lucide-react';
 import { Recipe, CookingVideo } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
 import { VideoCard } from '../components/VideoCard';
@@ -14,6 +14,7 @@ interface FavouritesPageProps {
   onRequestSubscribe?: (chefId: string, chefName: string) => void;
   onNavigate: (view: string) => void;
   onOpenAuthModal: (mode?: 'login' | 'signup') => void;
+  onCreateShoppingList?: (recipes: Recipe[]) => void;
 }
 
 export const FavouritesPage: React.FC<FavouritesPageProps> = ({
@@ -24,11 +25,14 @@ export const FavouritesPage: React.FC<FavouritesPageProps> = ({
   onPlayVideo,
   onRequestSubscribe,
   onNavigate,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onCreateShoppingList
 }) => {
   const { currentUser, favourites, videoFavourites } = useAuth();
   const [activeTab, setActiveTab] = useState<'recipes' | 'videos'>('recipes');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
 
   if (!currentUser) {
     return (
@@ -94,27 +98,90 @@ export const FavouritesPage: React.FC<FavouritesPageProps> = ({
     };
   });
 
+  const toggleSelectRecipe = (id: string) => {
+    setSelectedRecipeIds(prev => 
+      prev.includes(id) ? prev.filter(rId => rId !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRecipeIds.length === filteredBookmarked.length) {
+      setSelectedRecipeIds([]);
+    } else {
+      setSelectedRecipeIds(filteredBookmarked.map(r => r.id));
+    }
+  };
+
+  const handleLaunchCombine = () => {
+    if (!onCreateShoppingList) return;
+    const selected = recipes.filter(r => selectedRecipeIds.includes(r.id));
+    if (selected.length === 0) return;
+    onCreateShoppingList(selected);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-xs text-amber-700 font-semibold uppercase tracking-wider mb-1">
-          <Bookmark className="w-4 h-4" />
-          <span>Personal Recipe Box</span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-xs text-amber-700 font-semibold uppercase tracking-wider mb-1">
+            <Bookmark className="w-4 h-4" />
+            <span>Personal Recipe Box</span>
+          </div>
+          <h1 className="font-serif-display text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight">
+            Your Saved Favourites
+          </h1>
+          <p className="text-xs sm:text-sm text-stone-500 mt-1">
+            Manage your saved artisanal recipes and bookmarked cooking tutorial videos.
+          </p>
         </div>
-        <h1 className="font-serif-display text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight">
-          Your Saved Favourites
-        </h1>
-        <p className="text-xs sm:text-sm text-stone-500 mt-1">
-          Manage your saved artisanal recipes and bookmarked cooking tutorial videos.
-        </p>
+
+        {onCreateShoppingList && bookmarkedRecipes.length > 0 && activeTab === 'recipes' && (
+          <div className="flex items-center gap-2">
+            {!selectionMode ? (
+              <button
+                type="button"
+                onClick={() => setSelectionMode(true)}
+                className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors inline-flex items-center gap-2 cursor-pointer shadow-2xs"
+              >
+                <ShoppingCart className="w-4 h-4 text-amber-700" />
+                <span>Combine into Shopping List</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleLaunchCombine}
+                  disabled={selectedRecipeIds.length === 0}
+                  className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors inline-flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>Combine {selectedRecipeIds.length} {selectedRecipeIds.length === 1 ? 'Recipe' : 'Recipes'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectionMode(false);
+                    setSelectedRecipeIds([]);
+                  }}
+                  className="px-3 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Primary Tab Switcher */}
       <div className="flex items-center gap-3 border-b border-stone-200">
         <button
-          onClick={() => setActiveTab('recipes')}
+          onClick={() => {
+            setActiveTab('recipes');
+            setSelectionMode(false);
+          }}
           className={`pb-3 text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === 'recipes'
               ? 'border-amber-600 text-amber-800'
@@ -126,7 +193,10 @@ export const FavouritesPage: React.FC<FavouritesPageProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('videos')}
+          onClick={() => {
+            setActiveTab('videos');
+            setSelectionMode(false);
+          }}
           className={`pb-3 text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
             activeTab === 'videos'
               ? 'border-amber-600 text-amber-800'
@@ -137,6 +207,38 @@ export const FavouritesPage: React.FC<FavouritesPageProps> = ({
           <span>Bookmarked Videos ({bookmarkedVideos.length})</span>
         </button>
       </div>
+
+      {/* Selection Mode Bar */}
+      {selectionMode && activeTab === 'recipes' && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-300/60 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+              {selectedRecipeIds.length} of {filteredBookmarked.length} selected
+            </span>
+            <span className="text-xs text-amber-800/80 hidden sm:inline">
+              — Select multiple saved meals to merge duplicate ingredients into a single list
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              className="px-3 py-1.5 bg-white hover:bg-stone-50 text-stone-700 border border-stone-200 rounded-lg text-xs font-semibold cursor-pointer shadow-2xs"
+            >
+              {selectedRecipeIds.length === filteredBookmarked.length ? 'Deselect All' : 'Select All'}
+            </button>
+            <button
+              type="button"
+              onClick={handleLaunchCombine}
+              disabled={selectedRecipeIds.length === 0}
+              className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>Review Ingredients ({selectedRecipeIds.length})</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Recipes Tab Content */}
       {activeTab === 'recipes' && (
@@ -191,14 +293,40 @@ export const FavouritesPage: React.FC<FavouritesPageProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-              {filteredBookmarked.map((recipe) => (
-                <RecipeCard
-                  key={recipe.id}
-                  recipe={recipe}
-                  onSelect={onSelectRecipe}
-                  onSelectChef={onSelectChef}
-                />
-              ))}
+              {filteredBookmarked.map((recipe) => {
+                const isSelected = selectedRecipeIds.includes(recipe.id);
+                return (
+                  <div key={recipe.id} className="relative group">
+                    {selectionMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelectRecipe(recipe.id);
+                        }}
+                        className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-all cursor-pointer ${
+                          isSelected 
+                            ? 'bg-amber-600 text-white ring-2 ring-white' 
+                            : 'bg-white/90 text-stone-600 hover:bg-white'
+                        }`}
+                      >
+                        {isSelected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+                      </button>
+                    )}
+                    <RecipeCard
+                      recipe={recipe}
+                      onSelect={(rec) => {
+                        if (selectionMode) {
+                          toggleSelectRecipe(rec.id);
+                        } else {
+                          onSelectRecipe(rec);
+                        }
+                      }}
+                      onSelectChef={onSelectChef}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

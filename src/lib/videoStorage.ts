@@ -8,8 +8,6 @@ import { db } from './firebase';
  * (mobile phones, tablets, laptops, and desktop computers).
  */
 
-export const UNIVERSAL_FALLBACK_VIDEO = '/sample-chef-cooking.mp4';
-
 const DB_NAME = 'DellyChowStorageDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'videos';
@@ -208,19 +206,107 @@ export async function uploadVideoChunksToFirestore(
 }
 
 /**
- * Resolve any video URL (dellychow-video://, blob:, http:, https:, data:) to an immediately playable URL.
- * Supports cross-device playback: retrieves from memory cache, local IndexedDB, or Firestore cloud chunks,
- * with automatic fallback to high-definition culinary stream to prevent any playback errors.
+ * Upload video file or blob directly to the backend server.
+ * Returns the permanent public stream URL that can be played by any food lover or guest on any device.
+ */
+export async function uploadVideoToServer(
+  blob: Blob,
+  filename: string,
+  videoId: string,
+  onProgress?: (percent: number) => void
+): Promise<{ url: string; id: string; size: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/videos/upload');
+    xhr.setRequestHeader('x-filename', filename);
+    xhr.setRequestHeader('x-video-id', videoId);
+    xhr.setRequestHeader('Content-Type', blob.type || 'video/mp4');
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          onProgress(pct);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          resolve(res);
+        } catch {
+          resolve({ url: `/api/videos/stream/${videoId}.mp4`, id: videoId, size: blob.size });
+        }
+      } else {
+        reject(new Error(`Server video upload failed with status ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during video upload'));
+    xhr.send(blob);
+  });
+}
+
+/**
+ * Check if a stream URL exists on the server.
+ */
+export async function checkServerStreamExists(streamUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(streamUrl, { method: 'HEAD' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Automatically sync any videos stored in local device's IndexedDB to the server
+ * so that food lovers and other users can immediately stream the published video.
+ */
+export async function syncPublishedVideosToServer(
+  videos: Array<{ id: string; videoUrl: string; title?: string }>,
+  onSynced?: (videoId: string, newUrl: string) => void
+): Promise<void> {
+  if (typeof window === 'undefined' || !window.indexedDB) return;
+
+  for (const v of videos) {
+    if (v.videoUrl && v.videoUrl.startsWith('dellychow-video://')) {
+      const cleanId = v.videoUrl.replace('dellychow-video://', '').split('?')[0];
+      try {
+        const blob = await getVideoBlob(cleanId);
+        if (blob && blob.size > 0) {
+          const ext = blob.type.includes('webm') ? '.webm' : blob.type.includes('mov') ? '.mov' : '.mp4';
+          const filename = `${cleanId}${ext}`;
+          const res = await uploadVideoToServer(blob, filename, cleanId);
+          if (res?.url) {
+            console.log(`[Video Storage] Synced local video "${v.title || v.id}" to server:`, res.url);
+            if (onSynced) {
+              onSynced(v.id, res.url);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Video Storage] Auto-sync skipped for ${v.id}:`, err);
+      }
+    }
+  }
+}
+
+/**
+ * Resolve any video URL (http:, https:, /uploads/, /api/videos/stream/, dellychow-video://, blob:, data:)
+ * to an immediately playable URL.
  */
 export async function resolveVideoUrl(url: string, videoId?: string): Promise<string> {
-  if (!url) return UNIVERSAL_FALLBACK_VIDEO;
+  if (!url) return '';
 
-  // Standard web URLs (YouTube, Vimeo, mp4, https:, blob:, data:)
+  // Direct server stream or web URL (YouTube, Vimeo, MP4, /api/videos/stream/..., /uploads/...)
   if (!url.startsWith('dellychow-video://')) {
     return url;
   }
 
-  // Parse custom storage URI
+  // Parse custom storage URI: dellychow-video://vid_123?vid=XYZ
   const rawPath = url.replace('dellychow-video://', '');
   const [cleanId, queryString] = rawPath.split('?');
   const params = new URLSearchParams(queryString || '');
@@ -234,19 +320,42 @@ export async function resolveVideoUrl(url: string, videoId?: string): Promise<st
     return objectUrlCache.get(url)!;
   }
 
-  // 2. Check local device's IndexedDB
+  // 2. Check local device's IndexedDB (if the current user is the chef who recorded/uploaded on this browser)
   try {
     const localBlob = await getVideoBlob(cleanId);
     if (localBlob && localBlob.size > 0) {
       const blobUrl = URL.createObjectURL(localBlob);
       objectUrlCache.set(cleanId, blobUrl);
+
+      // In background, ensure it is also saved to the server so food lovers on other devices can stream it
+      const ext = localBlob.type.includes('webm') ? '.webm' : '.mp4';
+      uploadVideoToServer(localBlob, `${cleanId}${ext}`, cleanId).catch(() => {});
+
       return blobUrl;
     }
   } catch (err) {
     console.warn('Local video lookup notice:', err);
   }
 
-  // 3. Cross-Device Cloud Retrieval: Fetch assembled chunks from Firestore
+  // 3. Check if server stream is ready for this video ID
+  const candidateStreamUrls = [
+    `/api/videos/stream/${cleanId}.mp4`,
+    `/api/videos/stream/${cleanId}.webm`,
+    `/api/videos/stream/${effectiveVideoId}.mp4`,
+    `/api/videos/stream/${effectiveVideoId}.webm`,
+    `/uploads/videos/${cleanId}.mp4`,
+    `/uploads/videos/${cleanId}.webm`
+  ];
+
+  for (const streamUrl of candidateStreamUrls) {
+    const exists = await checkServerStreamExists(streamUrl);
+    if (exists) {
+      objectUrlCache.set(cleanId, streamUrl);
+      return streamUrl;
+    }
+  }
+
+  // 4. Cross-Device Cloud Retrieval: Fetch assembled chunks from Firestore if available
   if (effectiveVideoId) {
     try {
       const chunksRef = collection(db, 'videos', effectiveVideoId, 'chunks');
@@ -267,10 +376,14 @@ export async function resolveVideoUrl(url: string, videoId?: string): Promise<st
         if (byteArrays.length > 0) {
           const assembledBlob = new Blob(byteArrays as BlobPart[], { type: mimeType });
           
-          // Cache in local IndexedDB for future visits on this device
+          // Cache in local IndexedDB
           try {
             await saveVideoBlobLocally(cleanId, assembledBlob, mimeType);
           } catch {}
+
+          // Upload to server stream in background
+          const ext = mimeType.includes('webm') ? '.webm' : '.mp4';
+          uploadVideoToServer(assembledBlob, `${cleanId}${ext}`, cleanId).catch(() => {});
 
           const blobUrl = URL.createObjectURL(assembledBlob);
           objectUrlCache.set(cleanId, blobUrl);
@@ -282,8 +395,8 @@ export async function resolveVideoUrl(url: string, videoId?: string): Promise<st
     }
   }
 
-  // 4. Universal Fallback: For older recordings or unresolvable local IDs, return reliable fallback
-  return UNIVERSAL_FALLBACK_VIDEO;
+  // Fallback candidate stream URL on the server
+  return `/api/videos/stream/${cleanId}.mp4`;
 }
 
 /**

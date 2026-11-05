@@ -15,7 +15,9 @@ import {
   HelpCircle,
   Bell,
   CheckCheck,
-  ExternalLink
+  ExternalLink,
+  ShoppingCart,
+  Trophy
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -50,6 +52,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
     { id: 'home', label: 'Home' },
     { id: 'explore', label: 'Explore' },
     { id: 'videos', label: 'Videos' },
+    { id: 'challenges', label: 'Challenges' },
+    { id: 'shopping-lists', label: 'Shopping Lists' },
     { id: 'favourites', label: `Favourites ${favourites.length > 0 ? `(${favourites.length})` : ''}` },
     { id: 'premium', label: 'VIP Classes' },
   ];
@@ -292,6 +296,22 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                     >
                       <Edit3 className="w-4 h-4 text-stone-500" />
                       Edit Profile & Settings
+                    </button>
+
+                    <button
+                      onClick={() => { onNavigate('shopping-lists'); setUserDropdownOpen(false); }}
+                      className="w-full text-left px-4 py-2 text-xs font-medium text-stone-700 hover:bg-amber-50 hover:text-amber-800 flex items-center gap-2"
+                    >
+                      <ShoppingCart className="w-4 h-4 text-stone-500" />
+                      Shopping Lists
+                    </button>
+
+                    <button
+                      onClick={() => { onNavigate('challenges'); setUserDropdownOpen(false); }}
+                      className="w-full text-left px-4 py-2 text-xs font-medium text-stone-700 hover:bg-amber-50 hover:text-amber-800 flex items-center gap-2"
+                    >
+                      <Trophy className="w-4 h-4 text-stone-500" />
+                      Cooking Challenges
                     </button>
 
                     <button

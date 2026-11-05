@@ -189,5 +189,41 @@ service cloud.firestore {
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow update, delete: if false;
     }
+
+    // Shopping Lists
+    match /shopping_lists/{listId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Cooking Challenges
+    match /challenges/{challengeId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    // Challenge Entries
+    match /challenge_entries/{entryId} {
+      allow read: if true;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && (existing().userId == request.auth.uid || incoming().diff(existing()).affectedKeys().hasOnly(['voteCount']));
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Challenge Votes
+    match /challenge_votes/{voteId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // User Badges
+    match /user_badges/{badgeId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+      allow delete: if false;
+    }
   }
 }

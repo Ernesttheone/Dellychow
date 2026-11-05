@@ -25,7 +25,7 @@ import { CookingVideo, VideoComment } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
-import { resolveVideoUrl, UNIVERSAL_FALLBACK_VIDEO } from '../lib/videoStorage';
+import { resolveVideoUrl } from '../lib/videoStorage';
 
 interface VideoPlayerModalProps {
   video: CookingVideo | null;
@@ -86,11 +86,12 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     }
   }, [video]);
 
-  // Resolve custom stored videos from IndexedDB or Firestore cloud chunks
+  // Resolve published video stream from server or storage
   useEffect(() => {
     if (!video?.videoUrl) {
-      setPlayableUrl(UNIVERSAL_FALLBACK_VIDEO);
+      setPlayableUrl('');
       setVideoLoading(false);
+      setVideoError('No video URL is linked to this masterclass.');
       return;
     }
     let isCancelled = false;
@@ -100,15 +101,22 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     resolveVideoUrl(video.videoUrl, video.id)
       .then((resolved) => {
         if (!isCancelled) {
-          setPlayableUrl(resolved || UNIVERSAL_FALLBACK_VIDEO);
-          setVideoLoading(false);
+          if (resolved) {
+            setPlayableUrl(resolved);
+            setVideoLoading(false);
+          } else {
+            setPlayableUrl('');
+            setVideoLoading(false);
+            setVideoError('The published video stream is currently syncing from the studio.');
+          }
         }
       })
       .catch((err) => {
         console.warn('Cross-device video stream resolution notice:', err);
         if (!isCancelled) {
-          setPlayableUrl(UNIVERSAL_FALLBACK_VIDEO);
+          setPlayableUrl('');
           setVideoLoading(false);
+          setVideoError('Unable to load video stream. Please verify your connection or try again.');
         }
       });
 
@@ -430,23 +438,31 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
 
                 {videoError ? (
                   <div className="p-6 text-center space-y-3 max-w-md mx-auto z-10">
-                    <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
+                    <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
                     <p className="text-xs text-stone-300 leading-relaxed">{videoError}</p>
                     <button
                       type="button"
                       onClick={() => {
                         setVideoError(null);
-                        setPlayableUrl(UNIVERSAL_FALLBACK_VIDEO);
+                        setVideoLoading(true);
+                        resolveVideoUrl(video.videoUrl, video.id).then((url) => {
+                          setPlayableUrl(url);
+                          setVideoLoading(false);
+                          if (!url) {
+                            setVideoError('Video stream could not be loaded. Please check back shortly.');
+                          }
+                        });
                       }}
-                      className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors"
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold transition-colors"
                     >
-                      Play Masterclass Stream
+                      Retry Playing Video
                     </button>
                   </div>
                 ) : embedUrl ? (
                   <video 
                     ref={videoElementRef}
                     src={embedUrl} 
+                    poster={video.thumbnailUrl}
                     controls 
                     playsInline
                     controlsList="nodownload"
@@ -455,13 +471,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                     onCanPlay={() => setVideoLoading(false)}
                     onLoadedData={() => setVideoLoading(false)}
                     onError={() => {
-                      if (embedUrl !== UNIVERSAL_FALLBACK_VIDEO) {
-                        setPlayableUrl(UNIVERSAL_FALLBACK_VIDEO);
-                        setVideoLoading(false);
-                      } else {
-                        setVideoLoading(false);
-                        setVideoError('Unable to play video stream. Please verify your connection or try refreshing.');
-                      }
+                      setVideoLoading(false);
+                      setVideoError('Unable to play video stream. Please verify the video format or check back in a moment.');
                     }}
                     className="w-full h-full object-contain"
                   />

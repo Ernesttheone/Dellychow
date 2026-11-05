@@ -11,7 +11,10 @@ import {
   Eye, 
   EyeOff, 
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Copy,
+  ExternalLink,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
@@ -49,11 +52,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isExistingEmailError, setIsExistingEmailError] = useState(false);
+  const [domainError, setDomainError] = useState<{ hostname: string; projectId: string } | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   useEffect(() => {
     setMode(initialMode);
     setSelectedRole(initialRole);
     setErrorMsg('');
+    setIsExistingEmailError(false);
+    setDomainError(null);
   }, [initialMode, initialRole, isOpen]);
 
   if (!isOpen) return null;
@@ -61,6 +69,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setIsExistingEmailError(false);
     setLoading(true);
 
     try {
@@ -96,12 +105,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }
     } catch (err: any) {
-      console.error(err);
+      console.warn('Authentication notice:', err?.code || err?.message);
       let message = err.message || 'Authentication failed. Please verify your credentials.';
       if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
         message = 'Invalid email or password. If you don\'t have an account, click "Create Account".';
       } else if (err.code === 'auth/email-already-in-use') {
-        message = 'This email is already registered. Please log in instead.';
+        setIsExistingEmailError(true);
+        message = 'This email is already registered on DellyChow.';
+      } else if (err.code === 'auth/weak-password') {
+        message = 'Password is too weak. Please use at least 6 characters.';
       } else if (err.code === 'auth/operation-not-allowed') {
         message = 'Email & password registration is restricted by project settings. Please use Google Login below.';
       }
@@ -111,8 +123,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const handleSwitchToLoginWithExisting = async () => {
+    setMode('login');
+    setErrorMsg('');
+    setIsExistingEmailError(false);
+    if (password && password.length >= 6) {
+      setLoading(true);
+      try {
+        const profile = await login(email.trim(), password);
+        onClose();
+        if (pendingAction) {
+          await executePendingAction();
+        }
+        if (onLoginSuccess) {
+          onLoginSuccess(profile.role);
+        }
+      } catch (loginErr: any) {
+        console.warn('Direct login attempt notice:', loginErr?.code || loginErr?.message);
+        setErrorMsg('Please enter your password to log in.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleCopyHostname = async () => {
+    if (!domainError?.hostname) return;
+    try {
+      await navigator.clipboard.writeText(domainError.hostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    } catch {
+      // Fallback
+    }
+  };
+
   const handleGoogleAuth = async () => {
     setErrorMsg('');
+    setDomainError(null);
     setLoading(true);
     try {
       const profile = await signInWithGoogle(selectedRole);
@@ -125,7 +173,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.warn("Google authentication error:", err);
-      setErrorMsg(err.message || 'Google sign in was cancelled.');
+      if (err.code === 'auth/unauthorized-domain' || (err.message && err.message.includes('unauthorized-domain'))) {
+        setDomainError({
+          hostname: typeof window !== 'undefined' ? window.location.hostname : '',
+          projectId: 'charged-art-wghtt'
+        });
+      } else {
+        setErrorMsg(err.message || 'Google sign in was cancelled.');
+      }
     } finally {
       setLoading(false);
     }
@@ -188,7 +243,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex p-1 bg-stone-100 rounded-xl mt-5">
             <button
               type="button"
-              onClick={() => { setMode('login'); setErrorMsg(''); }}
+              onClick={() => { setMode('login'); setErrorMsg(''); setIsExistingEmailError(false); setDomainError(null); }}
               className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'login'
                   ? 'bg-white text-stone-900 shadow-xs'
@@ -199,7 +254,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => { setMode('signup'); setErrorMsg(''); }}
+              onClick={() => { setMode('signup'); setErrorMsg(''); setIsExistingEmailError(false); setDomainError(null); }}
               className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'signup'
                   ? 'bg-white text-amber-800 shadow-xs'
@@ -214,11 +269,93 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Modal Body */}
         <div className="px-6 sm:px-8 pb-8 pt-2 overflow-y-auto space-y-4">
           
-          {errorMsg && (
+          {domainError ? (
+            <div className="p-3.5 bg-amber-50/95 text-stone-900 text-xs rounded-2xl border border-amber-300 space-y-2.5 animate-in fade-in">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-snug">
+                  <p className="font-bold text-stone-900">Authorize Domain for Google Sign-In</p>
+                  <p className="text-stone-600 text-[11px] mt-0.5">
+                    Firebase Auth requires this preview domain to be added to Authorized Domains in your Firebase project.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-2 rounded-xl border border-amber-200 flex items-center justify-between gap-2 shadow-2xs">
+                <code className="font-mono text-[11px] text-stone-800 break-all select-all font-semibold">
+                  {domainError.hostname}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopyHostname}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-medium rounded-lg flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                >
+                  {copiedDomain ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedDomain ? 'Copied!' : 'Copy'}</span>
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-1.5 pt-0.5">
+                <a
+                  href={`https://console.firebase.google.com/project/${domainError.projectId}/authentication/settings`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-1.5 py-2 px-3 bg-stone-900 hover:bg-stone-800 text-white font-medium rounded-xl text-xs transition-colors"
+                >
+                  <span>Open Firebase Authorized Domains</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                <p className="text-[10px] text-stone-500 text-center">
+                  Click <strong>Add domain</strong> and paste the domain above.
+                </p>
+              </div>
+
+              <div className="border-t border-amber-200/80 pt-2 text-[11px] text-amber-950 font-medium text-center bg-amber-100/50 -mx-3.5 -mb-3.5 p-2 rounded-b-2xl">
+                💡 Tip: You can also sign up or log in using <strong>Email &amp; Password</strong> above without domain setup!
+              </div>
+            </div>
+          ) : isExistingEmailError ? (
+            <div className="p-4 bg-amber-50/95 text-stone-900 text-xs rounded-2xl border border-amber-300 space-y-3 animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-stone-900 text-xs">Account Already Registered</p>
+                  <p className="text-stone-600 text-[11px] mt-0.5 leading-relaxed">
+                    An account for <strong className="text-stone-900">{email}</strong> already exists on DellyChow.
+                    {password ? ' Click below to log in with your entered password.' : ' Please switch to log in.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleSwitchToLoginWithExisting}
+                  className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs text-center transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>{password ? 'Log In with Entered Password' : 'Switch to Log In'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+
+                {onOpenForgotPassword && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenForgotPassword();
+                    }}
+                    className="py-2 px-3 bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 font-semibold rounded-xl text-xs text-center transition-colors cursor-pointer"
+                  >
+                    Reset Password
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : errorMsg ? (
             <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 leading-relaxed">
               {errorMsg}
             </div>
-          )}
+          ) : null}
 
           {/* Role Selector (visible during Create Account) */}
           {mode === 'signup' && (
@@ -311,7 +448,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (isExistingEmailError) setIsExistingEmailError(false);
+                    if (errorMsg) setErrorMsg('');
+                  }}
                   placeholder="chef@dellychow.com"
                   required
                   className="w-full text-xs sm:text-sm pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
