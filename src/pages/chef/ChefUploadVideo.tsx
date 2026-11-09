@@ -26,7 +26,7 @@ import { Recipe, CookingVideo } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
 import { ASSET_IMAGES } from '../../assets/images';
-import { saveVideoBlob, extractVideoMetadataAndThumbnail, uploadVideoChunksToFirestore, uploadVideoToServer } from '../../lib/videoStorage';
+import { extractVideoMetadataAndThumbnail, uploadVideoToServer, validateVideoFile } from '../../lib/videoStorage';
 
 interface ChefUploadVideoProps {
   recipes: Recipe[];
@@ -307,14 +307,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate common video formats: MP4, MOV, WebM, M4V
-    const validExtensions = ['.mp4', '.mov', '.webm', '.m4v', '.ogg'];
-    const fileNameLower = file.name.toLowerCase();
-    const hasValidExtension = validExtensions.some(ext => fileNameLower.endsWith(ext));
-    const isVideoMime = file.type.startsWith('video/');
-
-    if (!isVideoMime && !hasValidExtension) {
-      setErrorMsg('Unsupported file format. Please select an MP4, MOV, or WebM video file.');
+    const validation = validateVideoFile(file);
+    if (!validation.valid) {
+      setErrorMsg(validation.error || 'Unsupported video file format.');
       return;
     }
 
@@ -414,25 +409,16 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
         // 2. Upload video binary directly to server so all food lovers on all devices have permanent streaming access
         setProgressStatusText('Uploading video masterclass to server...');
-        finalPublicUrl = `/api/videos/stream/${newVideoId}${ext}`;
+        const uploadResult = await uploadVideoToServer(videoBlob, filename, newVideoId, (pct) => {
+          setUploadProgress(15 + Math.round(pct * 0.75)); // 15% to 90%
+          setProgressStatusText(`Streaming video to server (${pct}%)...`);
+        });
 
-        try {
-          const uploadResult = await uploadVideoToServer(videoBlob, filename, newVideoId, (pct) => {
-            setUploadProgress(15 + Math.round(pct * 0.7)); // 15% to 85%
-            setProgressStatusText(`Streaming video to server (${pct}%)...`);
-          });
-          if (uploadResult?.url) {
-            finalPublicUrl = uploadResult.url;
-          }
-        } catch (uploadErr) {
-          console.warn('Server upload notice, caching locally:', uploadErr);
+        if (!uploadResult?.url) {
+          throw new Error('Video upload failed: server did not return a valid stream URL.');
         }
 
-        // 3. Cache in local IndexedDB for fast instant author playback
-        await saveVideoBlob(videoBlob, filename);
-
-        // 4. Also attempt chunk upload for redundant cloud backup
-        uploadVideoChunksToFirestore(newVideoId, videoBlob).catch(() => {});
+        finalPublicUrl = uploadResult.url;
       }
 
       setProgressStatusText('Publishing masterclass to your chef profile...');

@@ -841,22 +841,13 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                         setVideoLoading(false);
                         const mediaErr = videoElementRef.current?.error;
                         const errCode = mediaErr ? mediaErr.code : 4;
-                        const errMsg = mediaErr?.message || 'Video could not be loaded.';
+                        const errMsg = mediaErr?.message || 'Video stream could not be loaded.';
 
                         // Execute diagnostic hook: logs video.error object, currentSrc, networkState, and verifies public accessibility
                         logDiagnosticError(errMsg);
 
-                        // Automatic Media Error (4) Self-Healing:
-                        // If a specific stream failed with code 4 (SRC_NOT_SUPPORTED), auto-recover with the universal masterclass stream
-                        if (errCode === 4 && playableUrl && !playableUrl.includes('default_masterclass.mp4')) {
-                          console.warn(`[Video Player] Stream ${playableUrl} returned error 4. Auto-recovering to masterclass stream.`);
-                          setPlayableUrl('/api/videos/stream/default_masterclass.mp4');
-                          setVideoError(null);
-                          setNetworkStatusText('Auto-recovered stream (HTTP 206)');
-                          return;
-                        }
-
-                        setVideoError(`Media Error (${errCode}): ${errMsg}`);
+                        // Strict separation: never substitute with AI or default stream
+                        setVideoError(`Media Playback Error (${errCode}): ${errMsg}`);
                         setNetworkStatusText(`Failed with code ${errCode}`);
                       }}
                       className="w-full h-full object-contain cursor-pointer"

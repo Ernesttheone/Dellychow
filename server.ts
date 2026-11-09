@@ -89,13 +89,7 @@ async function startServer() {
       }
     }
 
-    if (!fs.existsSync(filePath)) {
-      const defaultMaster = path.join(UPLOADS_DIR, 'default_masterclass.mp4');
-      if (fs.existsSync(defaultMaster)) {
-        filePath = defaultMaster;
-      }
-    }
-
+    // Strict separation: never substitute requested video with any default or AI-generated video
     if (fs.existsSync(filePath)) {
       const stat = fs.statSync(filePath);
       const ext = path.extname(filePath).toLowerCase();
@@ -126,24 +120,9 @@ async function startServer() {
       }
     }
 
-    // Universal resilience: if requested video file is missing on this container/server instance,
-    // seamlessly provide the authentic masterclass stream so users and food lovers never hit Media Error 4
+    // Strict separation: never substitute requested video with any default or AI-generated video
     if (!fs.existsSync(filePath)) {
-      const defaultMaster = path.join(UPLOADS_DIR, 'default_masterclass.mp4');
-      if (fs.existsSync(defaultMaster)) {
-        try {
-          const autoExt = filename.includes('.') ? '' : '.mp4';
-          const autoPath = path.join(UPLOADS_DIR, `${filename}${autoExt}`);
-          fs.copyFileSync(defaultMaster, autoPath);
-          filePath = autoPath;
-        } catch {
-          filePath = defaultMaster;
-        }
-      }
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Video stream not found' });
+      return res.status(404).json({ error: 'Video file not found on server.' });
     }
 
     const stat = fs.statSync(filePath);
