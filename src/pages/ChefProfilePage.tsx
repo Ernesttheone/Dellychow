@@ -14,7 +14,8 @@ import {
   ShieldCheck,
   Send,
   Edit3,
-  AlertCircle
+  AlertCircle,
+  Share2
 } from 'lucide-react';
 import { Recipe, CookingVideo, UserProfile, ChefReview } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
@@ -26,6 +27,7 @@ import { db } from '../lib/firebase';
 import { ASSET_IMAGES } from '../assets/images';
 import { UserAvatar } from '../components/UserAvatar';
 import { RecipeService } from '../services/recipeService';
+import { ShareModal, ShareItem } from '../components/ShareModal';
 
 interface ChefProfilePageProps {
   chefId: string;
@@ -51,6 +53,10 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   const [loadingChef, setLoadingChef] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [activeTab, setActiveTab] = useState<'recipes' | 'videos' | 'community' | 'reviews'>('recipes');
+
+  // Link Sharing System state
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareItem, setShareItem] = useState<ShareItem | null>(null);
 
   // Feature 5: Chef Reviews & Ratings
   const [reviews, setReviews] = useState<ChefReview[]>([]);
@@ -113,6 +119,31 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   }, [chefId, currentUser]);
 
   const isSubscribed = isSubscribedToChef(chefId);
+
+  // Link Sharing System handlers
+  const handleShareChefProfile = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    setShareItem({
+      title: `${displayName} | Master Chef on DellyChow`,
+      text: chefProfile?.bio || `Discover masterclasses and recipes by ${displayName} on DellyChow!`,
+      url: `${origin}/?chef=${chefId}`,
+      mediaType: 'chef',
+      thumbnailUrl: avatarUrl
+    });
+    setShareModalOpen(true);
+  };
+
+  const handleShareVideo = (video: CookingVideo) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    setShareItem({
+      title: `${video.title} | Chef ${video.authorName}`,
+      text: video.description || `Watch this culinary masterclass on DellyChow!`,
+      url: `${origin}/?video=${video.id}`,
+      mediaType: 'video',
+      thumbnailUrl: video.thumbnailUrl
+    });
+    setShareModalOpen(true);
+  };
 
   // Filter recipes and videos authored by this chef
   const chefRecipes = recipes.filter(r => r.authorId === chefId);
@@ -284,6 +315,16 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
           <div className="flex flex-col sm:flex-row items-stretch md:items-center gap-3 w-full md:w-auto shrink-0">
             <button
               type="button"
+              onClick={handleShareChefProfile}
+              className="px-4 py-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-700 text-xs font-semibold uppercase tracking-wider transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+              title="Share Chef Profile"
+            >
+              <Share2 className="w-4 h-4 text-stone-600" />
+              <span>{currentUser?.uid === chefId ? 'Share My Profile' : 'Share Profile'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={toggleFollow}
               className={`px-5 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider transition-colors flex items-center justify-center gap-2 ${
                 isFollowing
@@ -396,6 +437,7 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
                   key={video.id}
                   video={video}
                   onPlay={onPlayVideo}
+                  onShare={handleShareVideo}
                   onRequestSubscribe={onRequestSubscribe}
                   onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
                 />
@@ -630,6 +672,13 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
 
         </div>
       )}
+
+      {/* Link Sharing Modal */}
+      <ShareModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        item={shareItem}
+      />
 
     </div>
   );

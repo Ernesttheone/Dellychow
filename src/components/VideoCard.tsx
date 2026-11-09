@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Lock, Clock, Eye, Sparkles, LogIn } from 'lucide-react';
+import { Play, Lock, Clock, Eye, Share2, LogIn } from 'lucide-react';
 import { CookingVideo } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar';
@@ -10,6 +10,7 @@ interface VideoCardProps {
   onRequestSubscribe?: (chefId: string, chefName: string) => void;
   isGuestRestricted?: boolean;
   onOpenAuthModal?: () => void;
+  onShare?: (video: CookingVideo) => void;
 }
 
 export const VideoCard: React.FC<VideoCardProps> = ({ 
@@ -17,13 +18,16 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   onPlay, 
   onRequestSubscribe,
   isGuestRestricted = false,
-  onOpenAuthModal 
+  onOpenAuthModal,
+  onShare
 }) => {
   const { isSubscribedToChef, currentUser } = useAuth();
   const isVipLocked = video.isPremium && !isSubscribedToChef(video.authorId);
 
   const handleClick = () => {
-    if (isGuestRestricted && !currentUser) {
+    // Free tutorials are open to everyone (guests and members alike)
+    // Only lock when specifically configured as a guest-restricted premium asset
+    if (isGuestRestricted && video.isPremium && !currentUser) {
       if (onOpenAuthModal) {
         onOpenAuthModal();
       }
@@ -33,9 +37,16 @@ export const VideoCard: React.FC<VideoCardProps> = ({
     onPlay(video);
   };
 
+  const handleShareClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onShare) {
+      onShare(video);
+    }
+  };
+
   return (
     <div 
-      className="group bg-white rounded-2xl border border-stone-200/80 overflow-hidden shadow-xs hover:shadow-md transition-all duration-300 flex flex-col cursor-pointer"
+      className="group bg-white rounded-2xl border border-stone-200/80 overflow-hidden shadow-xs hover:shadow-md transition-all duration-300 flex flex-col cursor-pointer relative"
       onClick={handleClick}
     >
       {/* Video Thumbnail */}
@@ -55,12 +66,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
 
         {/* Play Button or Lock Badge Overlay */}
         <div className="absolute inset-0 flex items-center justify-center bg-stone-950/20 group-hover:bg-stone-950/30 transition-colors">
-          {isGuestRestricted && !currentUser ? (
-            <div className="px-3 py-1.5 rounded-full bg-stone-900/90 text-amber-300 text-xs font-semibold flex items-center gap-1.5 shadow-lg transform group-hover:scale-105 transition-transform backdrop-blur-xs border border-amber-500/30">
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign In to Watch</span>
-            </div>
-          ) : isVipLocked ? (
+          {isVipLocked ? (
             <div className="w-12 h-12 rounded-full bg-amber-600 text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
               <Lock className="w-5 h-5" />
             </div>
@@ -89,12 +95,20 @@ export const VideoCard: React.FC<VideoCardProps> = ({
               Free Tutorial
             </div>
           )}
-          {isGuestRestricted && !currentUser && (
-            <div className="bg-stone-800 text-amber-300 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm">
-              Members
-            </div>
-          )}
         </div>
+
+        {/* Quick Share Button on thumbnail */}
+        {onShare && (
+          <button
+            type="button"
+            onClick={handleShareClick}
+            aria-label="Share video link"
+            title="Share Video"
+            className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-stone-900/80 hover:bg-amber-600 text-white flex items-center justify-center backdrop-blur-xs transition-colors shadow-sm cursor-pointer z-10"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -128,18 +142,16 @@ export const VideoCard: React.FC<VideoCardProps> = ({
               size="xs"
               ring={false}
             />
-            <span className="font-medium text-stone-700 truncate max-w-[140px]">{video.authorName}</span>
+            <span className="font-medium text-stone-700 truncate max-w-[130px]">{video.authorName}</span>
           </div>
 
-          {isGuestRestricted && !currentUser ? (
-            <span className="text-[11px] font-semibold text-amber-700 flex items-center gap-1">
-              Sign In to Watch
-            </span>
-          ) : isVipLocked ? (
-            <span className="text-[11px] font-semibold text-amber-700">Unlock VIP</span>
-          ) : (
-            <span className="text-[11px] text-emerald-700 font-medium">Watch Free</span>
-          )}
+          <div className="flex items-center gap-2">
+            {isVipLocked ? (
+              <span className="text-[11px] font-semibold text-amber-700">Unlock VIP</span>
+            ) : (
+              <span className="text-[11px] text-emerald-700 font-medium">Watch Free</span>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -456,6 +456,18 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
       if (recipeId && recipeId.trim()) {
         videoData.recipeId = recipeId.trim();
+        const linkedRecipe = recipes.find(r => r.id === recipeId.trim());
+        if (linkedRecipe) {
+          videoData.attachedRecipe = {
+            id: linkedRecipe.id,
+            title: linkedRecipe.title,
+            description: linkedRecipe.description,
+            servings: linkedRecipe.servings || 4,
+            cookTimeMinutes: linkedRecipe.cookTimeMinutes || 30,
+            ingredients: linkedRecipe.ingredients || [],
+            steps: linkedRecipe.steps || []
+          };
+        }
       }
 
       if (calories || protein.trim() || carbs.trim() || fat.trim()) {

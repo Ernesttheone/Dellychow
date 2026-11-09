@@ -31,6 +31,7 @@ import { ChefMyRecipes } from './pages/chef/ChefMyRecipes';
 import { ChefCommunity } from './pages/chef/ChefCommunity';
 import { ASSET_IMAGES } from './assets/images';
 import { syncPublishedVideosToServer } from './lib/videoStorage';
+import { ShareModal, ShareItem } from './components/ShareModal';
 
 function AppContent() {
   const { 
@@ -45,11 +46,20 @@ function AppContent() {
   const [currentView, setCurrentView] = useState<string>('home');
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedChefId, setSelectedChefId] = useState<string>('chef-david-chen');
+  const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
   const [exploreCategory, setExploreCategory] = useState<string>('all');
   const [recipeToEdit, setRecipeToEdit] = useState<Recipe | null>(null);
 
-  // Modals
+  // Firestore real-time data
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [videos, setVideos] = useState<CookingVideo[]>([]);
+  const [loadingContent, setLoadingContent] = useState(true);
+  const [seedNotice, setSeedNotice] = useState<string | null>(null);
+
+  // Modals & Sharing
   const [activeVideoModal, setActiveVideoModal] = useState<CookingVideo | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareItem, setShareItem] = useState<ShareItem | null>(null);
   const [supportModalOpen, setSupportModalOpen] = useState(false);
   const [subModal, setSubModal] = useState<{ isOpen: boolean; chefId: string; chefName: string }>({
     isOpen: false,
@@ -98,11 +108,25 @@ function AppContent() {
     setShoppingModalOpen(true);
   };
 
-  // Check URL parameters for password reset links (e.g. ?mode=resetPassword&oobCode=XYZ)
+  const handleShareVideo = (video: CookingVideo) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    setShareItem({
+      title: `${video.title} | Chef ${video.authorName}`,
+      text: video.description || `Watch this culinary masterclass on DellyChow!`,
+      url: `${origin}/?video=${video.id}`,
+      mediaType: 'video',
+      thumbnailUrl: video.thumbnailUrl
+    });
+    setShareModalOpen(true);
+  };
+
+  // Check URL parameters for direct share links (?video=, ?v=, ?chef=, ?user=, ?recipe=, password reset)
   useEffect(() => {
     try {
       if (typeof window !== 'undefined' && window.location.search) {
         const params = new URLSearchParams(window.location.search);
+        
+        // 1. Password reset flow
         const mode = params.get('mode');
         const oobCode = params.get('oobCode');
         if (mode === 'resetPassword') {
@@ -111,11 +135,55 @@ function AppContent() {
             initialCode: oobCode || null
           });
         }
+
+        // 2. Direct Video permanent link (?video=<id> or ?v=<id>)
+        const videoId = params.get('video') || params.get('v');
+        if (videoId) {
+          const found = videos.find(v => v.id === videoId);
+          if (found) {
+            setActiveVideoModal(found);
+          } else {
+            RecipeService.getVideo(videoId).then((v: CookingVideo | null) => {
+              if (v) setActiveVideoModal(v);
+            }).catch(() => {});
+          }
+        }
+
+        // 3. Direct Chef Profile permanent link (?chef=<chefId>)
+        const chefParam = params.get('chef');
+        if (chefParam) {
+          setSelectedChefId(chefParam);
+          setCurrentView('chef-profile');
+        }
+
+        // 4. Direct Food Lover User Profile link (?user=<userId>)
+        const userParam = params.get('user');
+        if (userParam) {
+          setSelectedUserId(userParam);
+          setCurrentView('user-profile');
+        }
+
+        // 5. Direct Recipe permanent link (?recipe=<recipeId>)
+        const recipeParam = params.get('recipe');
+        if (recipeParam) {
+          const rFound = recipes.find(r => r.id === recipeParam);
+          if (rFound) {
+            setSelectedRecipe(rFound);
+            setCurrentView('recipe-detail');
+          } else {
+            RecipeService.getRecipe(recipeParam).then(r => {
+              if (r) {
+                setSelectedRecipe(r);
+                setCurrentView('recipe-detail');
+              }
+            }).catch(() => {});
+          }
+        }
       }
     } catch (e) {
-      console.warn("Could not parse reset password query parameters:", e);
+      console.warn("Could not parse query parameters:", e);
     }
-  }, []);
+  }, [videos, recipes]);
 
   // Watch video auto-redirect after guest registers/logs in
   useEffect(() => {
@@ -124,12 +192,6 @@ function AppContent() {
       setActiveWatchVideo(null);
     }
   }, [activeWatchVideo, setActiveWatchVideo]);
-
-  // Firestore real-time data
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [videos, setVideos] = useState<CookingVideo[]>([]);
-  const [loadingContent, setLoadingContent] = useState(true);
-  const [seedNotice, setSeedNotice] = useState<string | null>(null);
 
   // Real-time listener for recipes and videos
   useEffect(() => {
@@ -161,6 +223,9 @@ function AppContent() {
   }, []);
 
   const handleNavigate = (view: string, params?: any) => {
+    if (view === 'user-profile') {
+      setSelectedUserId(params?.userId || undefined);
+    }
     if (params?.category) {
       setExploreCategory(params.category);
     }
@@ -174,7 +239,7 @@ function AppContent() {
     if (params?.videoId) {
       const found = videos.find(v => v.id === params.videoId);
       if (found) {
-        if (!currentUser) {
+        if (found.isPremium && !currentUser) {
           setPendingAction({ type: 'watch_video', video: found });
           handleOpenAuthModal('signup', 'user');
         } else {
@@ -290,6 +355,7 @@ function AppContent() {
             onRequestSubscribe={handleOpenSubscribe}
             onPublishStarterRecipes={handlePublishStarterRecipes}
             onOpenAuthModal={handleOpenAuthModal}
+            onShareVideo={handleShareVideo}
           />
         )}
 
@@ -320,6 +386,7 @@ function AppContent() {
             onRequestSubscribe={handleOpenSubscribe}
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
+            onShareVideo={handleShareVideo}
           />
         )}
 
@@ -389,6 +456,7 @@ function AppContent() {
             onSelectChef={handleSelectChef}
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
+            viewUserId={selectedUserId}
           />
         )}
 
@@ -455,7 +523,13 @@ function AppContent() {
         onClose={() => setActiveVideoModal(null)}
         onViewRecipe={(recipeId) => handleNavigate('recipe-detail', { recipeId })}
         onSelectChef={handleSelectChef}
+        onRequestSubscribe={handleOpenSubscribe}
         onOpenAuthModal={handleOpenAuthModal}
+        onNavigateToShopping={() => {
+          setActiveVideoModal(null);
+          setCurrentView('shopping-lists');
+        }}
+        recipes={publicRecipes}
       />
 
       <SubscriptionModal
@@ -506,6 +580,12 @@ function AppContent() {
         onSuccess={(listId) => {
           setCurrentView('shopping-lists');
         }}
+      />
+
+      <ShareModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        item={shareItem}
       />
 
     </div>

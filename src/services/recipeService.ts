@@ -187,6 +187,21 @@ export const RecipeService = {
     return doc(collection(db, 'videos')).id;
   },
 
+  // Get a single video by ID
+  async getVideo(videoId: string): Promise<CookingVideo | null> {
+    try {
+      const docRef = doc(db, 'videos', videoId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return { id: snap.id, ...(snap.data() as Omit<CookingVideo, 'id'>) };
+      }
+      return null;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, `videos/${videoId}`);
+      return null;
+    }
+  },
+
   // Create video
   async createVideo(video: Omit<CookingVideo, 'id' | 'createdAt'>, customId?: string): Promise<string> {
     const newDocRef = customId ? doc(db, 'videos', customId) : doc(collection(db, 'videos'));

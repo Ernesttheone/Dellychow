@@ -54,6 +54,17 @@ export interface Recipe {
   updatedAt?: string;
 }
 
+export interface AttachedVideoRecipe {
+  id?: string;
+  title: string;
+  description?: string;
+  ingredients: string[];
+  steps?: string[];
+  cookTimeMinutes?: number;
+  prepTimeMinutes?: number;
+  servings?: number;
+}
+
 export interface CookingVideo {
   id: string;
   authorId: string;
@@ -66,11 +77,20 @@ export interface CookingVideo {
   durationMinutes: number;
   category: string;
   recipeId?: string;
+  attachedRecipe?: AttachedVideoRecipe;
   isPremium?: boolean;
   viewCount?: number;
   likesCount?: number;
   nutritionInfo?: NutritionalInfo;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ChefFollow {
+  chefId: string;
+  userId: string;
+  notificationPreference: 'all' | 'personalized' | 'none';
+  followedAt: string;
 }
 
 export interface Favourite {

@@ -26,6 +26,7 @@ interface HomePageProps {
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onPublishStarterRecipes?: () => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
+  onShareVideo?: (video: CookingVideo) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -36,7 +37,8 @@ export const HomePage: React.FC<HomePageProps> = ({
   onNavigate,
   onRequestSubscribe,
   onPublishStarterRecipes,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onShareVideo
 }) => {
   const { currentUser, userProfile, setPendingAction } = useAuth();
   const isChef = userProfile?.role === 'chef';
@@ -294,15 +296,16 @@ export const HomePage: React.FC<HomePageProps> = ({
                   key={video.id}
                   video={video}
                   onPlay={(v) => {
-                    if (!currentUser) {
+                    if (v.isPremium && !currentUser) {
                       setPendingAction({ type: 'watch_video', video: v });
                       if (onOpenAuthModal) onOpenAuthModal('signup');
                       return;
                     }
                     onPlayVideo(v);
                   }}
+                  onShare={onShareVideo}
                   onRequestSubscribe={onRequestSubscribe}
-                  isGuestRestricted={!currentUser}
+                  isGuestRestricted={video.isPremium && !currentUser}
                   onOpenAuthModal={() => {
                     setPendingAction({ type: 'watch_video', video });
                     if (onOpenAuthModal) onOpenAuthModal('signup');

@@ -68,11 +68,40 @@ export const ShoppingService = {
     }
   },
 
+  // Retrieve a single shopping list by ID
+  async getShoppingList(userId: string, listId: string): Promise<ShoppingList | null> {
+    const cached = getLocalLists(userId);
+    const found = cached.find(l => l.id === listId);
+    if (found) return found;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'shopping_lists', listId);
+      const snap = await getDocs(collection(db, 'users', userId, 'shopping_lists'));
+      let fetched: ShoppingList | null = null;
+      snap.forEach(d => {
+        if (d.id === listId) {
+          fetched = { id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) };
+        }
+      });
+      return fetched;
+    } catch {
+      return null;
+    }
+  },
+
   // Save new or existing list
-  async saveShoppingList(userId: string, list: ShoppingList): Promise<string> {
+  async saveShoppingList(
+    userId: string, 
+    list: Partial<ShoppingList> & { name: string; items: ShoppingListItem[] }
+  ): Promise<string> {
     const listId = list.id || `list_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const fullList: ShoppingList = {
-      ...list,
+      name: list.name,
+      items: list.items,
+      notes: list.notes || '',
+      recipeIds: list.recipeIds || [],
+      recipeTitles: list.recipeTitles || [],
+      createdAt: list.createdAt || new Date().toISOString(),
       id: listId,
       userId,
       updatedAt: new Date().toISOString()

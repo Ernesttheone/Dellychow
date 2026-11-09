@@ -10,6 +10,7 @@ interface VideosPageProps {
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
+  onShareVideo?: (video: CookingVideo) => void;
 }
 
 export const VideosPage: React.FC<VideosPageProps> = ({
@@ -17,7 +18,8 @@ export const VideosPage: React.FC<VideosPageProps> = ({
   onPlayVideo,
   onRequestSubscribe,
   onNavigate,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onShareVideo
 }) => {
   const { currentUser, userProfile, setPendingAction } = useAuth();
   const isChef = userProfile?.role === 'chef';
@@ -48,8 +50,7 @@ export const VideosPage: React.FC<VideosPageProps> = ({
   }, [videos, currentUser, activeFilter, searchQuery]);
 
   const handleVideoCardClick = (video: CookingVideo) => {
-    if (!currentUser) {
-      // Requirement 9: When a guest clicks on the video to play it, display a registration or login pop-up with a clear message explaining that creating an account is required to watch the tutorial video. After login, redirect to video.
+    if (video.isPremium && !currentUser) {
       setPendingAction({ type: 'watch_video', video });
       onOpenAuthModal?.('signup');
       return;
@@ -195,8 +196,9 @@ export const VideosPage: React.FC<VideosPageProps> = ({
                 key={video.id}
                 video={video}
                 onPlay={handleVideoCardClick}
+                onShare={onShareVideo}
                 onRequestSubscribe={onRequestSubscribe}
-                isGuestRestricted={!currentUser}
+                isGuestRestricted={video.isPremium && !currentUser}
                 onOpenAuthModal={() => {
                   setPendingAction({ type: 'watch_video', video });
                   onOpenAuthModal?.('signup');

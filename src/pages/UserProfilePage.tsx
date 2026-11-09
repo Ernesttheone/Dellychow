@@ -23,15 +23,19 @@ import {
   Upload,
   Camera,
   Loader2,
-  Trophy
+  Trophy,
+  Share2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Recipe, CookingVideo, UserBadge } from '../types';
+import { Recipe, CookingVideo, UserBadge, UserProfile } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
 import { UserAvatar } from '../components/UserAvatar';
 import { DEFAULT_AVATARS, getDefaultAvatar } from '../constants/avatars';
 import { processDeviceImage } from '../lib/imageUtils';
 import { ChallengeService } from '../services/challengeService';
+import { ShareModal, ShareItem } from '../components/ShareModal';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface UserProfilePageProps {
   recipes: Recipe[];
@@ -40,6 +44,7 @@ interface UserProfilePageProps {
   onSelectChef: (chefId: string) => void;
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal: (mode?: 'login' | 'signup') => void;
+  viewUserId?: string;
 }
 
 export const UserProfilePage: React.FC<UserProfilePageProps> = ({
@@ -47,7 +52,8 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   onSelectRecipe,
   onSelectChef,
   onNavigate,
-  onOpenAuthModal
+  onOpenAuthModal,
+  viewUserId
 }) => {
   const { currentUser, userProfile, favourites, activeSubscriptions, updateProfileData } = useAuth();
   const [activeTab, setActiveTab] = useState<'favourites' | 'subscriptions' | 'avatars' | 'badges'>('favourites');
@@ -57,8 +63,52 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   const [badges, setBadges] = useState<UserBadge[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Link Sharing System state
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareItem, setShareItem] = useState<ShareItem | null>(null);
+
+  // Public visitor state (when ?user=<id> is shared to others)
+  const [publicUser, setPublicUser] = useState<UserProfile | null>(null);
+  const [loadingPublicUser, setLoadingPublicUser] = useState(false);
+  const [publicBadges, setPublicBadges] = useState<UserBadge[]>([]);
+
+  const isViewingOtherUser = Boolean(viewUserId && viewUserId !== currentUser?.uid);
+
   React.useEffect(() => {
-    if (currentUser) {
+    if (isViewingOtherUser && viewUserId) {
+      setLoadingPublicUser(true);
+      const fetchPublicUser = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', viewUserId));
+          if (userDoc.exists()) {
+            setPublicUser(userDoc.data() as UserProfile);
+          } else {
+            // Provide a pleasant fallback for demo food lover accounts
+            setPublicUser({
+              id: viewUserId,
+              displayName: 'DellyChow Food Lover',
+              role: 'user',
+              bio: 'Passionate culinary explorer discovering artisan recipes, testing flavours, and sharing the love of food.',
+              photoURL: getDefaultAvatar(viewUserId).svgDataUri,
+              createdAt: new Date().toISOString()
+            });
+          }
+        } catch (e) {
+          console.warn('Could not load public profile:', e);
+        } finally {
+          setLoadingPublicUser(false);
+        }
+      };
+
+      fetchPublicUser();
+
+      try {
+        const otherBadges = ChallengeService.getUserBadges(viewUserId);
+        setPublicBadges(otherBadges);
+      } catch (e) {
+        console.warn('Could not load other user badges:', e);
+      }
+    } else if (currentUser) {
       try {
         const userBadges = ChallengeService.getUserBadges(currentUser.uid);
         setBadges(userBadges);
@@ -66,7 +116,174 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         console.warn('Could not load user badges:', e);
       }
     }
-  }, [currentUser]);
+  }, [currentUser, viewUserId, isViewingOtherUser]);
+
+  const handleShareMyProfile = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const targetId = isViewingOtherUser ? (viewUserId || '') : (currentUser?.uid || '');
+    const name = isViewingOtherUser ? (publicUser?.displayName || 'Food Lover') : (userProfile?.displayName || 'Food Lover');
+    const bio = isViewingOtherUser ? (publicUser?.bio || '') : (userProfile?.bio || '');
+    const photo = isViewingOtherUser ? publicUser?.photoURL : userProfile?.photoURL;
+
+    setShareItem({
+      title: `${name} | Food Lover Profile on DellyChow`,
+      text: bio || `Check out ${name}'s culinary profile on DellyChow!`,
+      url: `${origin}/?user=${targetId}`,
+      mediaType: 'user',
+      thumbnailUrl: photo
+    });
+    setShareModalOpen(true);
+  };
+
+  // If viewing another food lover's public profile via shared link
+  if (isViewingOtherUser) {
+    if (loadingPublicUser) {
+      return (
+        <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+          <Loader2 className="w-8 h-8 animate-spin text-amber-600 mx-auto" />
+          <p className="text-xs text-stone-500 font-medium">Loading food lover profile...</p>
+        </div>
+      );
+    }
+
+    if (!publicUser) {
+      return (
+        <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-2xs">
+            <User className="w-8 h-8" />
+          </div>
+          <h2 className="font-serif-display text-2xl font-bold text-stone-900">
+            Profile Not Found
+          </h2>
+          <p className="text-xs sm:text-sm text-stone-500 leading-relaxed">
+            The culinary profile you are looking for is either unavailable or has been removed.
+          </p>
+          <button
+            type="button"
+            onClick={() => onNavigate('explore')}
+            className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-xs"
+          >
+            Explore Recipes
+          </button>
+        </div>
+      );
+    }
+
+    const publicJoinDate = publicUser.createdAt 
+      ? new Date(publicUser.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      : 'Oct 2026';
+    const publicUserRecipes = recipes.filter(r => r.authorId === publicUser.id && (!r.status || r.status === 'published'));
+
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Public Profile Hero */}
+        <section className="relative overflow-hidden rounded-3xl bg-stone-900 text-white border border-stone-800 p-6 sm:p-10 shadow-xl">
+          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 sm:gap-6">
+              <UserAvatar
+                src={publicUser.photoURL}
+                name={publicUser.displayName}
+                seed={publicUser.id}
+                size="2xl"
+                className="ring-4 ring-amber-500/30"
+              />
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    <Utensils className="w-3.5 h-3.5" />
+                    <span>Food Lover</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-stone-400">
+                    <Calendar className="w-3 h-3" />
+                    <span>Member since {publicJoinDate}</span>
+                  </span>
+                </div>
+
+                <h1 className="font-serif-display text-2xl sm:text-4xl font-bold text-white tracking-tight">
+                  {publicUser.displayName}
+                </h1>
+
+                <p className="text-stone-300 text-xs sm:text-sm max-w-xl leading-relaxed">
+                  {publicUser.bio || 'Passionate culinary explorer discovering artisan recipes, testing flavours, and sharing the love of food.'}
+                </p>
+
+                {publicUser.specialty && (
+                  <div className="flex items-center gap-2 pt-1 text-xs text-amber-400 font-medium">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Favorite Cuisine: {publicUser.specialty}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Share CTA */}
+            <div className="flex items-center gap-3 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-white/10 shrink-0">
+              <button
+                type="button"
+                onClick={handleShareMyProfile}
+                className="w-full md:w-auto px-5 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer uppercase tracking-wider"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Share Profile</span>
+              </button>
+            </div>
+          </div>
+          <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
+        </section>
+
+        {/* Public Badges */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-600" />
+              <span>Culinary Honors & Badges ({publicBadges.length})</span>
+            </h2>
+          </div>
+
+          {publicBadges.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-white border border-stone-200/80 text-center text-xs text-stone-500">
+              No competition badges earned yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {publicBadges.map((badge) => (
+                <div key={badge.id} className="p-4 rounded-2xl bg-white border border-stone-200/80 shadow-2xs flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-2xl flex items-center justify-center shrink-0">
+                    {badge.icon || '🏆'}
+                  </div>
+                  <div>
+                    <h4 className="font-serif-display font-bold text-sm text-stone-900">{badge.title}</h4>
+                    <p className="text-[11px] text-stone-500 line-clamp-1">{badge.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Public Shared Recipes if any */}
+        {publicUserRecipes.length > 0 && (
+          <section className="space-y-4">
+            <h2 className="font-serif-display text-xl font-bold text-stone-900">
+              Published Recipes ({publicUserRecipes.length})
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {publicUserRecipes.map((r) => (
+                <RecipeCard key={r.id} recipe={r} onSelect={onSelectRecipe} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Link Sharing Modal */}
+        <ShareModal
+          isOpen={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          item={shareItem}
+        />
+      </div>
+    );
+  }
 
   if (!currentUser || !userProfile) {
     return (
@@ -205,8 +422,17 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
           <div className="flex flex-row md:flex-col items-center md:items-end gap-3 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-white/10">
             <button
               type="button"
+              onClick={handleShareMyProfile}
+              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Share2 className="w-4 h-4" />
+              <span>Share My Profile</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => onNavigate('account')}
-              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 backdrop-blur-xs"
+              className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 backdrop-blur-xs cursor-pointer"
             >
               <Edit3 className="w-4 h-4" />
               <span>Edit Profile</span>
@@ -759,6 +985,13 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
           )}
         </section>
       )}
+
+      {/* Link Sharing Modal */}
+      <ShareModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        item={shareItem}
+      />
 
     </div>
   );
