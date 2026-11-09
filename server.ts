@@ -17,8 +17,8 @@ async function startServer() {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   }
 
-  // Raw body parser for video uploads (up to 200MB)
-  app.use('/api/videos/upload', express.raw({ type: '*/*', limit: '200mb' }));
+  // Raw body parser for video uploads (up to 300MB)
+  app.use('/api/videos/upload', express.raw({ type: '*/*', limit: '300mb' }));
 
   // Video Upload API
   app.post('/api/videos/upload', (req, res) => {
@@ -75,13 +75,14 @@ async function startServer() {
   // Check if a video stream exists on server
   app.head('/api/videos/stream/:filename', (req, res) => {
     setVideoCorsHeaders(res);
-    const filename = path.basename(req.params.filename);
-    let filePath = path.join(UPLOADS_DIR, filename);
+    const rawFilename = path.basename(req.params.filename);
+    const baseName = rawFilename.replace(/\.(mp4|webm|mov|m4v)$/i, '');
+    let filePath = path.join(UPLOADS_DIR, rawFilename);
 
     if (!fs.existsSync(filePath)) {
-      const candidates = ['.mp4', '.webm', '.mov', '.m4v'];
-      for (const c of candidates) {
-        const testPath = path.join(UPLOADS_DIR, `${filename}${c}`);
+      const candidates = [`${baseName}.mp4`, `${baseName}.webm`, `${baseName}.mov`, `${baseName}.m4v`];
+      for (const cand of candidates) {
+        const testPath = path.join(UPLOADS_DIR, cand);
         if (fs.existsSync(testPath)) {
           filePath = testPath;
           break;
@@ -105,14 +106,15 @@ async function startServer() {
   // Stream video with HTTP Range Requests (smooth seeking, iOS/Safari/Android/Desktop support)
   app.get('/api/videos/stream/:filename', (req, res) => {
     setVideoCorsHeaders(res);
-    const filename = path.basename(req.params.filename);
-    let filePath = path.join(UPLOADS_DIR, filename);
+    const rawFilename = path.basename(req.params.filename);
+    const baseName = rawFilename.replace(/\.(mp4|webm|mov|m4v)$/i, '');
+    let filePath = path.join(UPLOADS_DIR, rawFilename);
 
-    // If extension wasn't specified, look for matching video file
+    // If extension wasn't specified or mismatch, look for matching video file
     if (!fs.existsSync(filePath)) {
-      const candidates = ['.mp4', '.webm', '.mov', '.m4v'];
-      for (const c of candidates) {
-        const testPath = path.join(UPLOADS_DIR, `${filename}${c}`);
+      const candidates = [`${baseName}.mp4`, `${baseName}.webm`, `${baseName}.mov`, `${baseName}.m4v`];
+      for (const cand of candidates) {
+        const testPath = path.join(UPLOADS_DIR, cand);
         if (fs.existsSync(testPath)) {
           filePath = testPath;
           break;
@@ -163,6 +165,7 @@ async function startServer() {
 
   // Serve static uploads
   app.use('/uploads/videos', express.static(UPLOADS_DIR));
+  app.use('/public/uploads/videos', express.static(UPLOADS_DIR));
 
   // Social Crawler Preview Middleware for Link Sharing System (WhatsApp, Twitter/X, Facebook, Telegram, etc.)
   app.use(async (req, res, next) => {

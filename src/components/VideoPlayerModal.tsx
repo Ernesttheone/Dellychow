@@ -51,7 +51,7 @@ import { combineIngredients } from '../lib/ingredientUtils';
 import { ShareModal, ShareItem } from './ShareModal';
 import { useVideoDiagnostics } from '../hooks/useVideoDiagnostics';
 
-interface VideoPlayerModalProps {
+export interface VideoPlayerModalProps {
   video: CookingVideo | null;
   onClose: () => void;
   onViewRecipe?: (recipeId: string) => void;
@@ -62,7 +62,23 @@ interface VideoPlayerModalProps {
   recipes?: Recipe[];
 }
 
-export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({ 
+export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = (props) => {
+  if (!props.video) return null;
+  return <VideoPlayerModalContent {...props} video={props.video} />;
+};
+
+interface VideoPlayerModalContentProps {
+  video: CookingVideo;
+  onClose: () => void;
+  onViewRecipe?: (recipeId: string) => void;
+  onSelectChef?: (chefId: string) => void;
+  onRequestSubscribe?: (chefId: string, chefName: string) => void;
+  onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
+  onNavigateToShopping?: () => void;
+  recipes?: Recipe[];
+}
+
+const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({ 
   video, 
   onClose, 
   onViewRecipe,
@@ -277,28 +293,6 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     return () => clearInterval(interval);
   }, [video?.id, isVipProtected]);
 
-  if (!video) return null;
-
-  const isYouTubeEmbed = video.videoUrl.includes('youtube.com') || video.videoUrl.includes('youtu.be');
-  const isVimeoEmbed = video.videoUrl.includes('vimeo.com');
-  const isExternalEmbed = isYouTubeEmbed || isVimeoEmbed;
-
-  const getEmbedIframeUrl = (url: string) => {
-    if (!url) return '';
-    if (url.includes('youtube.com/watch?v=')) {
-      const id = url.split('v=')[1]?.split('&')[0];
-      return `https://www.youtube.com/embed/${id}?autoplay=1`;
-    }
-    if (url.includes('youtu.be/')) {
-      const id = url.split('youtu.be/')[1]?.split('?')[0];
-      return `https://www.youtube.com/embed/${id}?autoplay=1`;
-    }
-    if (url.includes('youtube.com/embed/')) {
-      return `${url}?autoplay=1`;
-    }
-    return url;
-  };
-
   // Video Controls Handlers
   const togglePlayPause = () => {
     if (previewEnded) return;
@@ -316,6 +310,53 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
       setIsPlaying(false);
     }
   };
+
+  // Keyboard Shortcuts for HTML5 Player (Space/K = play/pause, M = mute, F = fullscreen, Left/Right = seek 5s, Up/Down = volume)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input or textarea
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.code === 'Space' || e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        togglePlayPause();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMute();
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (videoElementRef.current) {
+          const newTime = Math.max(0, videoElementRef.current.currentTime - 5);
+          videoElementRef.current.currentTime = newTime;
+          setCurrentTime(newTime);
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (videoElementRef.current) {
+          const newTime = Math.min(duration || 9999, videoElementRef.current.currentTime + 5);
+          videoElementRef.current.currentTime = newTime;
+          setCurrentTime(newTime);
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        handleVolumeChange(Math.min(1, volume + 0.1));
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        handleVolumeChange(Math.max(0, volume - 0.1));
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlaying, volume, isMuted, duration, previewEnded]);
 
   const handleTimeUpdate = () => {
     if (!videoElementRef.current) return;
@@ -603,6 +644,27 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     }
   };
 
+  const videoUrlSafe = video.videoUrl || '';
+  const isYouTubeEmbed = videoUrlSafe.includes('youtube.com') || videoUrlSafe.includes('youtu.be');
+  const isVimeoEmbed = videoUrlSafe.includes('vimeo.com');
+  const isExternalEmbed = isYouTubeEmbed || isVimeoEmbed;
+
+  const getEmbedIframeUrl = (url: string) => {
+    if (!url) return '';
+    if (url.includes('youtube.com/watch?v=')) {
+      const id = url.split('v=')[1]?.split('&')[0];
+      return `https://www.youtube.com/embed/${id}?autoplay=1`;
+    }
+    if (url.includes('youtu.be/')) {
+      const id = url.split('youtu.be/')[1]?.split('?')[0];
+      return `https://www.youtube.com/embed/${id}?autoplay=1`;
+    }
+    if (url.includes('youtube.com/embed/')) {
+      return `${url}?autoplay=1`;
+    }
+    return url;
+  };
+
   const bookmarked = isVideoBookmarked(video.id);
 
   return (
@@ -710,6 +772,9 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
             <div 
               ref={playerContainerRef}
               className="relative aspect-16/9 bg-black w-full overflow-hidden select-none group"
+              onTouchEnd={() => {
+                setShowControls(prev => !prev);
+              }}
               onMouseEnter={() => setShowControls(true)}
               onMouseMove={() => {
                 setShowControls(true);
@@ -820,11 +885,28 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                       src={playableUrl}
                       poster={video.thumbnailUrl}
                       playsInline
-                      preload="metadata"
+                      preload="auto"
                       onClick={togglePlayPause}
                       onTimeUpdate={handleTimeUpdate}
                       onLoadedMetadata={handleLoadedMetadata}
+                      onLoadStart={() => {
+                        setVideoLoading(true);
+                        setNetworkStatusText('Connecting to stream...');
+                      }}
+                      onWaiting={() => {
+                        setVideoLoading(true);
+                        setNetworkStatusText('Buffering stream...');
+                      }}
+                      onCanPlay={() => {
+                        setVideoLoading(false);
+                      }}
                       onPlay={() => {
+                        setIsPlaying(true);
+                        setHasReachedPlaying(true);
+                        setNetworkStatusText('Playing (HTTP 206 stream)');
+                      }}
+                      onPlaying={() => {
+                        setVideoLoading(false);
                         setIsPlaying(true);
                         setHasReachedPlaying(true);
                         setNetworkStatusText('Playing (HTTP 206 stream)');

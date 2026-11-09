@@ -20,6 +20,13 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'ceganigabriel@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -33,42 +40,49 @@ service cloud.firestore {
       allow read: if true;
     }
 
+    // Admin Access Records
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // User & Chef Profiles
     match /users/{userId} {
       allow read: if true;
-      allow create: if isOwner(userId)
+      allow create: if (isOwner(userId) || isAdmin())
         && incoming().id == userId
         && incoming().displayName is string
         && incoming().displayName.size() > 0
         && incoming().displayName.size() <= 100;
       allow update: if isOwner(userId)
+        || isAdmin()
         || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['ratingAverage', 'ratingCount', 'subscriberCount', 'followerCount']));
-      allow delete: if false;
+      allow delete: if isAdmin();
 
       // User bookmarked recipe favourites
       match /favourites/{favouriteId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId)
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin())
           && incoming().userId == userId
           && isValidId(incoming().recipeId);
-        allow delete: if isOwner(userId);
+        allow delete: if isOwner(userId) || isAdmin();
       }
 
       // User bookmarked video favourites
       match /video_favourites/{videoFavId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId)
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin())
           && incoming().userId == userId
           && isValidId(incoming().videoId);
-        allow delete: if isOwner(userId);
+        allow delete: if isOwner(userId) || isAdmin();
       }
 
       // User notifications
       match /notifications/{notificationId} {
-        allow read: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
         allow create: if isSignedIn();
-        allow update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
       }
     }
 
@@ -76,18 +90,19 @@ service cloud.firestore {
     match /recipes/{recipeId} {
       allow read: if true;
       allow create: if isSignedIn()
-        && incoming().authorId == request.auth.uid
+        && (isAdmin() || incoming().authorId == request.auth.uid)
         && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150
         && incoming().category is string
         && incoming().cuisine is string;
       allow update: if isSignedIn()
         && (
+          isAdmin()
           // Chef author update
-          (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
+          || (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
           // Or rating/likes update by users
           || (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'ratingAverage', 'ratingCount']))
         );
-      allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+      allow delete: if isSignedIn() && (isAdmin() || existing().authorId == request.auth.uid);
 
       // Recipe Comments
       match /comments/{commentId} {
@@ -95,7 +110,7 @@ service cloud.firestore {
         allow create: if isSignedIn()
           && incoming().userId == request.auth.uid
           && incoming().content is string && incoming().content.size() > 0 && incoming().content.size() <= 2000;
-        allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+        allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
       }
     }
 
@@ -103,15 +118,16 @@ service cloud.firestore {
     match /videos/{videoId} {
       allow read: if true;
       allow create: if isSignedIn()
-        && incoming().authorId == request.auth.uid
+        && (isAdmin() || incoming().authorId == request.auth.uid)
         && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150
         && incoming().videoUrl is string;
       allow update: if isSignedIn()
         && (
-          (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
+          isAdmin()
+          || (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
           || (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'viewCount']))
         );
-      allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+      allow delete: if isSignedIn() && (isAdmin() || existing().authorId == request.auth.uid);
 
       // Video Comments
       match /comments/{commentId} {

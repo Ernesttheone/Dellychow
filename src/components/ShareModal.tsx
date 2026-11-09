@@ -184,9 +184,9 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, item })
         <div className="p-5 sm:p-6 space-y-5">
           {/* Visual Link Preview Card */}
           <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200/80 flex items-center gap-3 shadow-2xs">
-            {item.imageUrl ? (
+            {(item.imageUrl || item.thumbnailUrl) ? (
               <img 
-                src={item.imageUrl} 
+                src={item.imageUrl || item.thumbnailUrl} 
                 alt={item.title} 
                 referrerPolicy="no-referrer"
                 className="w-16 h-16 rounded-xl object-cover shrink-0 border border-stone-200 shadow-2xs"
@@ -198,7 +198,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, item })
             )}
             <div className="min-w-0 flex-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 block">
-                {item.type === 'video' ? 'Masterclass Video' : item.type === 'chef' ? 'Artisanal Chef' : 'Food Lover'}
+                {effectiveType === 'video' ? 'Masterclass Video' : effectiveType === 'chef' ? 'Artisanal Chef' : effectiveType === 'recipe' ? 'Artisanal Recipe' : 'Food Lover'}
               </span>
               <h4 className="font-serif-display text-sm font-bold text-stone-900 truncate">
                 {item.title}

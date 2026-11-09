@@ -207,7 +207,21 @@ export async function resolveVideoUrl(url: string, videoId?: string): Promise<st
 
   const cleanUrl = url.trim();
 
-  // Direct standard URLs (HTTP, HTTPS, direct stream, blobs)
+  // Map static uploads paths directly to byte-range stream endpoint
+  if (cleanUrl.startsWith('/public/uploads/videos/')) {
+    const filename = cleanUrl.replace('/public/uploads/videos/', '');
+    return `/api/videos/stream/${filename}`;
+  }
+  if (cleanUrl.startsWith('public/uploads/videos/')) {
+    const filename = cleanUrl.replace('public/uploads/videos/', '');
+    return `/api/videos/stream/${filename}`;
+  }
+  if (cleanUrl.startsWith('/uploads/videos/')) {
+    const filename = cleanUrl.replace('/uploads/videos/', '');
+    return `/api/videos/stream/${filename}`;
+  }
+
+  // Direct standard URLs (HTTP, HTTPS, direct stream, blobs, data)
   if (
     cleanUrl.startsWith('http://') ||
     cleanUrl.startsWith('https://') ||

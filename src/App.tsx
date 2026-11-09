@@ -10,6 +10,7 @@ import { AuthModal } from './components/AuthModal';
 import { SupportFAQModal } from './components/SupportFAQModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { VideoCleanupModal } from './components/VideoCleanupModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { HomePage } from './pages/HomePage';
 import { ExplorePage } from './pages/ExplorePage';
@@ -144,7 +145,13 @@ function AppContent() {
             setActiveVideoModal(found);
           } else {
             RecipeService.getVideo(videoId).then((v: CookingVideo | null) => {
-              if (v) setActiveVideoModal(v);
+              if (v) {
+                if (v.videoUrl && v.videoUrl.startsWith('dellychow-video://')) {
+                  const cleanId = v.videoUrl.replace('dellychow-video://', '').split('?')[0];
+                  v.videoUrl = `/api/videos/stream/${cleanId}.mp4`;
+                }
+                setActiveVideoModal(v);
+              }
             }).catch(() => {});
           }
         }
@@ -206,21 +213,44 @@ function AppContent() {
     );
 
     const unsubVideos = RecipeService.listenToVideos((loadedVideos) => {
-      setVideos(loadedVideos);
-      syncPublishedVideosToServer(loadedVideos, async (videoId, newUrl) => {
-        try {
-          await RecipeService.updateVideo(videoId, { videoUrl: newUrl });
-        } catch (err) {
-          console.warn('Could not update video with synced server URL:', err);
+      // Normalize any legacy dellychow-video:// in memory so playback streams smoothly for all users
+      const normalizedVideos = loadedVideos.map(v => {
+        if (v.videoUrl && v.videoUrl.startsWith('dellychow-video://')) {
+          const cleanId = v.videoUrl.replace('dellychow-video://', '').split('?')[0];
+          return { ...v, videoUrl: `/api/videos/stream/${cleanId}.mp4` };
         }
+        return v;
       });
+      setVideos(normalizedVideos);
+
+      // Only attempt to persist synced URL to Firestore if current user is author or admin
+      if (currentUser) {
+        const uid = currentUser.uid;
+        const email = currentUser.email;
+        const isAuthorized = (v: CookingVideo) =>
+          v.authorId === uid || email === 'ceganigabriel@gmail.com';
+
+        const videosToSync = loadedVideos.filter(v => 
+          v.videoUrl && v.videoUrl.startsWith('dellychow-video://') && isAuthorized(v)
+        );
+
+        if (videosToSync.length > 0) {
+          syncPublishedVideosToServer(videosToSync, async (videoId, newUrl) => {
+            try {
+              await RecipeService.updateVideo(videoId, { videoUrl: newUrl });
+            } catch (err) {
+              console.warn('Could not update video with synced server URL:', err);
+            }
+          });
+        }
+      }
     });
 
     return () => {
       unsubRecipes();
       unsubVideos();
     };
-  }, []);
+  }, [currentUser]);
 
   const handleNavigate = (view: string, params?: any) => {
     if (view === 'user-profile') {
@@ -518,19 +548,21 @@ function AppContent() {
       />
 
       {/* Global Modals */}
-      <VideoPlayerModal
-        video={activeVideoModal}
-        onClose={() => setActiveVideoModal(null)}
-        onViewRecipe={(recipeId) => handleNavigate('recipe-detail', { recipeId })}
-        onSelectChef={handleSelectChef}
-        onRequestSubscribe={handleOpenSubscribe}
-        onOpenAuthModal={handleOpenAuthModal}
-        onNavigateToShopping={() => {
-          setActiveVideoModal(null);
-          setCurrentView('shopping-lists');
-        }}
-        recipes={publicRecipes}
-      />
+      {activeVideoModal && (
+        <VideoPlayerModal
+          video={activeVideoModal}
+          onClose={() => setActiveVideoModal(null)}
+          onViewRecipe={(recipeId) => handleNavigate('recipe-detail', { recipeId })}
+          onSelectChef={handleSelectChef}
+          onRequestSubscribe={handleOpenSubscribe}
+          onOpenAuthModal={handleOpenAuthModal}
+          onNavigateToShopping={() => {
+            setActiveVideoModal(null);
+            setCurrentView('shopping-lists');
+          }}
+          recipes={publicRecipes}
+        />
+      )}
 
       <SubscriptionModal
         isOpen={subModal.isOpen}
@@ -594,8 +626,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
