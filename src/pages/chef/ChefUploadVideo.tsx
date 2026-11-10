@@ -46,6 +46,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   const [description, setDescription] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState(ASSET_IMAGES.trufflePasta);
   const [durationMinutes, setDurationMinutes] = useState(15);
+  const [hasManuallySetDuration, setHasManuallySetDuration] = useState(false);
   const [category, setCategory] = useState('Technique');
   const [recipeId, setRecipeId] = useState('');
   const [isPremium, setIsPremium] = useState(false);
@@ -216,7 +217,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         try {
           const { durationMinutes: autoDuration, thumbnailUrl: autoThumb } = 
             await extractVideoMetadataAndThumbnail(finalBlob);
-          if (autoDuration) setDurationMinutes(autoDuration);
+          if (autoDuration && !hasManuallySetDuration) setDurationMinutes(autoDuration);
           if (autoThumb) setThumbnailUrl(autoThumb);
         } catch {
           // Fallback to defaults
@@ -329,7 +330,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
       // Extract duration and thumbnail
       const { durationMinutes: autoDuration, thumbnailUrl: autoThumb } = 
         await extractVideoMetadataAndThumbnail(file);
-      if (autoDuration) setDurationMinutes(autoDuration);
+      if (autoDuration && !hasManuallySetDuration) setDurationMinutes(autoDuration);
       if (autoThumb) setThumbnailUrl(autoThumb);
 
     } catch (err: any) {
@@ -1027,18 +1028,58 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">
-              Duration (Minutes)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={240}
-              value={durationMinutes}
-              onChange={(e) => setDurationMinutes(Number(e.target.value))}
-              required
-              className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 tabular-nums"
-            />
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider">
+                Tutorial Duration (Minutes)
+              </label>
+              <span className="text-[11px] text-amber-700 font-medium">
+                Chef manual time limit
+              </span>
+            </div>
+            <div className="space-y-2">
+              <div className="relative">
+                <input
+                  type="number"
+                  min={1}
+                  value={durationMinutes || ''}
+                  onChange={(e) => {
+                    setHasManuallySetDuration(true);
+                    const val = e.target.value === '' ? 0 : Number(e.target.value);
+                    setDurationMinutes(val);
+                  }}
+                  placeholder="Enter minutes (e.g. 15, 30, 45)"
+                  required
+                  className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 tabular-nums pr-12"
+                />
+                <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-semibold uppercase">
+                  min
+                </span>
+              </div>
+
+              {/* Quick Preset Buttons for Chef */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                {[5, 10, 15, 20, 30, 45, 60, 90, 120].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => {
+                      setHasManuallySetDuration(true);
+                      setDurationMinutes(mins);
+                    }}
+                    className={`px-2.5 py-1 text-[11px] rounded-lg font-medium transition-colors ${
+                      durationMinutes === mins
+                        ? 'bg-amber-600 text-white font-bold shadow-xs'
+                        : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200'
+                    }`}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-stone-500">
+                You can set your own custom time limit manually for this cooking tutorial.
+              </p>
+            </div>
           </div>
         </div>
 

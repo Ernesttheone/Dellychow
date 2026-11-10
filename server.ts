@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,31 @@ async function startServer() {
 
       if (Buffer.isBuffer(req.body) && req.body.length > 0) {
         fs.writeFileSync(targetPath, req.body);
+        const distUploads = path.resolve(__dirname, 'dist/uploads/videos');
+        if (fs.existsSync(distUploads)) {
+          try {
+            fs.writeFileSync(path.join(distUploads, safeFilename), req.body);
+          } catch {
+            // ignore
+          }
+        }
+
+        // Apply faststart so the moov atom is placed at the front for instantaneous browser streaming
+        if (ext === '.mp4' || ext === '.mov' || ext === '.m4v') {
+          try {
+            const tmpFile = `${targetPath}.faststart.mp4`;
+            execSync(`ffmpeg -y -i "${targetPath}" -c copy -movflags +faststart "${tmpFile}" 2>/dev/null && mv "${tmpFile}" "${targetPath}"`, { stdio: 'ignore' });
+            if (fs.existsSync(distUploads)) {
+              try {
+                fs.copyFileSync(targetPath, path.join(distUploads, safeFilename));
+              } catch {
+                // ignore
+              }
+            }
+          } catch {
+            // keep original if faststart is not supported on this container
+          }
+        }
       } else {
         return res.status(400).json({ error: 'No video binary received or body is empty' });
       }
@@ -72,26 +98,52 @@ async function startServer() {
     return res.status(204).end();
   });
 
-  // Check if a video stream exists on server
-  app.head('/api/videos/stream/:filename', (req, res) => {
-    setVideoCorsHeaders(res);
-    const rawFilename = path.basename(req.params.filename);
+  // Self-healing file lookup across public and dist uploads
+  const findVideoFilePath = (filenameInput: string): string | null => {
+    const rawFilename = path.basename(filenameInput);
     const baseName = rawFilename.replace(/\.(mp4|webm|mov|m4v)$/i, '');
-    let filePath = path.join(UPLOADS_DIR, rawFilename);
+    const dirsToCheck = [
+      UPLOADS_DIR,
+      path.resolve(__dirname, 'dist/uploads/videos'),
+      path.resolve(__dirname, 'uploads/videos'),
+    ];
 
-    if (!fs.existsSync(filePath)) {
-      const candidates = [`${baseName}.mp4`, `${baseName}.webm`, `${baseName}.mov`, `${baseName}.m4v`];
-      for (const cand of candidates) {
-        const testPath = path.join(UPLOADS_DIR, cand);
-        if (fs.existsSync(testPath)) {
-          filePath = testPath;
-          break;
+    const candidates = [
+      rawFilename,
+      `${baseName}.mp4`,
+      `${baseName}.webm`,
+      `${baseName}.mov`,
+      `${baseName}.m4v`,
+    ];
+
+    for (const dir of dirsToCheck) {
+      if (fs.existsSync(dir)) {
+        for (const cand of candidates) {
+          const testPath = path.join(dir, cand);
+          if (fs.existsSync(testPath)) {
+            // Self-heal: ensure file is replicated in canonical public uploads
+            const canonicalPath = path.join(UPLOADS_DIR, path.basename(testPath));
+            if (!fs.existsSync(canonicalPath)) {
+              try {
+                fs.copyFileSync(testPath, canonicalPath);
+              } catch {
+                // ignore copy error
+              }
+            }
+            return testPath;
+          }
         }
       }
     }
+    return null;
+  };
 
-    // Strict separation: never substitute requested video with any default or AI-generated video
-    if (fs.existsSync(filePath)) {
+  // Check if a video stream exists on server
+  app.head('/api/videos/stream/:filename', (req, res) => {
+    setVideoCorsHeaders(res);
+    const filePath = findVideoFilePath(req.params.filename);
+
+    if (filePath && fs.existsSync(filePath)) {
       const stat = fs.statSync(filePath);
       const ext = path.extname(filePath).toLowerCase();
       const mimeType = ext === '.webm' ? 'video/webm' : ext === '.mov' ? 'video/quicktime' : 'video/mp4';
@@ -103,33 +155,14 @@ async function startServer() {
     return res.status(404).end();
   });
 
-  // Stream video with HTTP Range Requests (smooth seeking, iOS/Safari/Android/Desktop support)
+  // Stream video with robust HTTP Range Requests (res.sendFile handles all RFC 7233 range specs: standard, suffix, 416, multi-range, HEAD, and client disconnects)
   app.get('/api/videos/stream/:filename', (req, res) => {
     setVideoCorsHeaders(res);
-    const rawFilename = path.basename(req.params.filename);
-    const baseName = rawFilename.replace(/\.(mp4|webm|mov|m4v)$/i, '');
-    let filePath = path.join(UPLOADS_DIR, rawFilename);
+    const filePath = findVideoFilePath(req.params.filename);
 
-    // If extension wasn't specified or mismatch, look for matching video file
-    if (!fs.existsSync(filePath)) {
-      const candidates = [`${baseName}.mp4`, `${baseName}.webm`, `${baseName}.mov`, `${baseName}.m4v`];
-      for (const cand of candidates) {
-        const testPath = path.join(UPLOADS_DIR, cand);
-        if (fs.existsSync(testPath)) {
-          filePath = testPath;
-          break;
-        }
-      }
-    }
-
-    // Strict separation: never substitute requested video with any default or AI-generated video
-    if (!fs.existsSync(filePath)) {
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Video file not found on server.' });
     }
-
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
 
     const ext = path.extname(filePath).toLowerCase();
     const mimeType = ext === '.webm' 
@@ -138,29 +171,30 @@ async function startServer() {
       ? 'video/quicktime' 
       : 'video/mp4';
 
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = (end - start) + 1;
-      const file = fs.createReadStream(filePath, { start, end });
-      const head = {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunksize,
-        'Content-Type': mimeType,
-      };
-      res.writeHead(206, head);
-      file.pipe(res);
-    } else {
-      const head = {
-        'Content-Length': fileSize,
-        'Content-Type': mimeType,
-        'Accept-Ranges': 'bytes',
-      };
-      res.writeHead(200, head);
-      fs.createReadStream(filePath).pipe(res);
-    }
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    res.sendFile(path.resolve(filePath), {
+      acceptRanges: true,
+      cacheControl: true,
+      maxAge: '1h'
+    }, (err) => {
+      if (err && !res.headersSent) {
+        if ((err as any).status === 416) {
+          try {
+            const stat = fs.statSync(filePath);
+            res.setHeader('Content-Range', `bytes */${stat.size}`);
+            return res.status(416).end();
+          } catch {
+            return res.status(416).end();
+          }
+        }
+        // Client aborted/closed connection during stream is normal when seeking or pausing
+        if ((err as any).code !== 'ECONNABORTED' && (err as any).code !== 'ECANCELED') {
+          console.warn('[Video Stream] Sendfile notice:', err.message);
+        }
+      }
+    });
   });
 
   // Serve static uploads

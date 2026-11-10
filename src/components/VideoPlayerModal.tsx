@@ -881,11 +881,13 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                     </div>
                   ) : playableUrl ? (
                     <video
+                      key={playableUrl}
                       ref={videoElementRef}
                       src={playableUrl}
                       poster={video.thumbnailUrl}
                       playsInline
-                      preload="auto"
+                      preload="metadata"
+                      crossOrigin="anonymous"
                       onClick={togglePlayPause}
                       onTimeUpdate={handleTimeUpdate}
                       onLoadedMetadata={handleLoadedMetadata}
@@ -933,7 +935,9 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                         setNetworkStatusText(`Failed with code ${errCode}`);
                       }}
                       className="w-full h-full object-contain cursor-pointer"
-                    />
+                    >
+                      <source src={playableUrl} type={detectedMimeType} />
+                    </video>
                   ) : null}
 
                   {/* Large Center Play Button on Pause/Hover */}
