@@ -144,16 +144,15 @@ export function extractVideoMetadataAndThumbnail(
 
     const timeout = setTimeout(() => {
       cleanup();
-      // Graceful fallback with standard 10m duration if browser canvas extraction takes too long
       resolve({
-        durationMinutes: 10,
+        durationMinutes: 0,
         thumbnailUrl: ''
       });
     }, 15000);
 
     video.onloadedmetadata = () => {
-      const durationSeconds = video.duration || 60;
-      const durationMinutes = Math.max(1, Math.round(durationSeconds / 60));
+      const durationSeconds = video.duration || 0;
+      const durationMinutes = durationSeconds > 0 ? Math.max(1, Math.round(durationSeconds / 60)) : 0;
 
       // Seek to 1 second into video (or 10% for short clips) to capture an active cooking frame
       video.currentTime = Math.min(1.0, durationSeconds * 0.1);
@@ -170,8 +169,8 @@ export function extractVideoMetadataAndThumbnail(
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const thumbnailUrl = canvas.toDataURL('image/jpeg', 0.85);
-          const durationSeconds = video.duration || 60;
-          const durationMinutes = Math.max(1, Math.round(durationSeconds / 60));
+          const durationSeconds = video.duration || 0;
+          const durationMinutes = durationSeconds > 0 ? Math.max(1, Math.round(durationSeconds / 60)) : 0;
           cleanup();
           resolve({ durationMinutes, thumbnailUrl });
           return;
@@ -182,7 +181,7 @@ export function extractVideoMetadataAndThumbnail(
 
       cleanup();
       resolve({
-        durationMinutes: Math.max(1, Math.round((video.duration || 60) / 60)),
+        durationMinutes: video.duration ? Math.max(1, Math.round(video.duration / 60)) : 0,
         thumbnailUrl: ''
       });
     };
@@ -191,7 +190,7 @@ export function extractVideoMetadataAndThumbnail(
       clearTimeout(timeout);
       cleanup();
       resolve({
-        durationMinutes: 10,
+        durationMinutes: 0,
         thumbnailUrl: ''
       });
     };

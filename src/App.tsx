@@ -33,6 +33,11 @@ import { ChefCommunity } from './pages/chef/ChefCommunity';
 import { ASSET_IMAGES } from './assets/images';
 import { syncPublishedVideosToServer } from './lib/videoStorage';
 import { ShareModal, ShareItem } from './components/ShareModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { MobileSearchOverlay } from './components/MobileSearchOverlay';
+import { ThemeProvider } from './context/ThemeContext';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { recordWatchedVideoOffline, getWatchedVideosOffline } from './lib/offlineVideoCache';
 
 function AppContent() {
   const { 
@@ -45,6 +50,7 @@ function AppContent() {
   } = useAuth();
 
   const [currentView, setCurrentView] = useState<string>('home');
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedChefId, setSelectedChefId] = useState<string>('chef-david-chen');
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
@@ -221,7 +227,16 @@ function AppContent() {
         }
         return v;
       });
-      setVideos(normalizedVideos);
+      if (normalizedVideos.length > 0) {
+        setVideos(normalizedVideos);
+      } else {
+        // Fallback to offline cached videos if network returned empty or user is offline
+        getWatchedVideosOffline().then((cached) => {
+          if (cached && cached.length > 0) {
+            setVideos(cached);
+          }
+        });
+      }
 
       // Only attempt to persist synced URL to Firestore if current user is author or admin
       if (currentUser) {
@@ -356,6 +371,7 @@ function AppContent() {
         onNavigate={handleNavigate}
         onOpenAuthModal={handleOpenAuthModal}
         onOpenSupportModal={() => setSupportModalOpen(true)}
+        onOpenSearch={() => setMobileSearchOpen(true)}
       />
 
       {/* Notification banner if starter content seeded */}
@@ -374,18 +390,22 @@ function AppContent() {
       )}
 
       {/* Main View Router */}
-      <main className="flex-1">
+      <main className="flex-1 pb-16 md:pb-0">
         {currentView === 'home' && (
           <HomePage
             recipes={publicRecipes}
             videos={videos}
             onSelectRecipe={handleSelectRecipe}
-            onPlayVideo={(video) => setActiveVideoModal(video)}
+            onPlayVideo={(video) => {
+              setActiveVideoModal(video);
+              recordWatchedVideoOffline(video);
+            }}
             onNavigate={handleNavigate}
             onRequestSubscribe={handleOpenSubscribe}
             onPublishStarterRecipes={handlePublishStarterRecipes}
             onOpenAuthModal={handleOpenAuthModal}
             onShareVideo={handleShareVideo}
+            onSelectChef={handleSelectChef}
           />
         )}
 
@@ -412,7 +432,10 @@ function AppContent() {
         {currentView === 'videos' && (
           <VideosPage
             videos={videos}
-            onPlayVideo={(video) => setActiveVideoModal(video)}
+            onPlayVideo={(video) => {
+              setActiveVideoModal(video);
+              recordWatchedVideoOffline(video);
+            }}
             onRequestSubscribe={handleOpenSubscribe}
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
@@ -541,11 +564,37 @@ function AppContent() {
         )}
       </main>
 
-      {/* Footer */}
-      <Footer 
-        onNavigate={handleNavigate} 
-        onOpenSupportModal={() => setSupportModalOpen(true)}
+      {/* Mobile Fixed Bottom Navigation Bar (YouTube Style) */}
+      <MobileBottomNav
+        currentView={currentView}
+        onNavigate={handleNavigate}
+        onOpenAuthModal={handleOpenAuthModal}
       />
+
+      {/* Footer (Hidden on mobile to avoid double navigation, visible on md: screens) */}
+      <div className="hidden md:block">
+        <Footer 
+          onNavigate={handleNavigate} 
+          onOpenSupportModal={() => setSupportModalOpen(true)}
+        />
+      </div>
+
+      {/* Mobile YouTube-Style Search Overlay */}
+      <MobileSearchOverlay
+        isOpen={mobileSearchOpen}
+        onClose={() => setMobileSearchOpen(false)}
+        videos={videos}
+        recipes={publicRecipes}
+        onPlayVideo={(video) => {
+          setActiveVideoModal(video);
+          recordWatchedVideoOffline(video);
+        }}
+        onSelectRecipe={handleSelectRecipe}
+        onSelectChef={handleSelectChef}
+      />
+
+      {/* Offline Connectivity & Cache Indicator */}
+      <OfflineIndicator onViewCachedVideos={() => setCurrentView('videos')} />
 
       {/* Global Modals */}
       {activeVideoModal && (
@@ -561,6 +610,8 @@ function AppContent() {
             setCurrentView('shopping-lists');
           }}
           recipes={publicRecipes}
+          videos={videos}
+          onSelectVideo={(video) => setActiveVideoModal(video)}
         />
       )}
 
@@ -627,9 +678,11 @@ function AppContent() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

@@ -237,21 +237,30 @@ export function useVideoDiagnostics(
         publicAccessProbe: probeResult
       };
 
+      if (probeResult.httpStatus === 404) {
+        report.error = {
+          code: 4,
+          codeName: 'MEDIA_FILE_NOT_FOUND',
+          description: 'The requested video file was deleted or removed from the server (HTTP 404).',
+          message: 'Video file is no longer available on server storage.'
+        };
+      }
+
       setDiagnosticReport(report);
 
-      // Log exact structured details to console as requested
-      console.group(`[DellyChow Video Diagnostics] Playback Error for "${report.videoTitle}"`);
-      console.error('video.error object:', {
-        code: report.error?.code,
+      // Log exact structured details to console for debugging
+      console.groupCollapsed(`[DellyChow Video Diagnostics] Playback Status for "${report.videoTitle}"`);
+      console.info('Playback Diagnostics:', {
+        errorCode: report.error?.code,
         codeName: report.error?.codeName,
         message: report.error?.message,
         description: report.error?.description,
-        rawMediaError: mediaErr
+        httpStatus: probeResult.httpStatus
       });
-      console.warn('currentSrc:', report.currentSrc);
-      console.info('networkState:', `${report.networkState.code} (${report.networkState.name}) - ${report.networkState.description}`);
-      console.info('readyState:', `${report.readyState.code} (${report.readyState.name}) - ${report.readyState.description}`);
-      console.info('Public Access Verification (No Signed Headers):', {
+      console.info('Current Stream Source:', report.currentSrc);
+      console.info('Network State:', `${report.networkState.code} (${report.networkState.name}) - ${report.networkState.description}`);
+      console.info('Ready State:', `${report.readyState.code} (${report.readyState.name}) - ${report.readyState.description}`);
+      console.info('Public Access Verification:', {
         isPublicAndAccessible: probeResult.isPublic,
         httpStatus: probeResult.httpStatus,
         contentType: probeResult.contentType,

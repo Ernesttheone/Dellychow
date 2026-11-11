@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Play, Search, Video, ChefHat, Sparkles, Plus, Clock, ShieldCheck, LogIn, Lock } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Play, Search, Video, ChefHat, Sparkles, Plus, Clock, ShieldCheck, LogIn, Lock, WifiOff } from 'lucide-react';
 import { CookingVideo } from '../types';
 import { VideoCard } from '../components/VideoCard';
 import { useAuth } from '../context/AuthContext';
+import { getWatchedVideosOffline, useOnlineStatus } from '../lib/offlineVideoCache';
 
 interface VideosPageProps {
   videos: CookingVideo[];
@@ -23,18 +24,31 @@ export const VideosPage: React.FC<VideosPageProps> = ({
 }) => {
   const { currentUser, userProfile, setPendingAction } = useAuth();
   const isChef = userProfile?.role === 'chef';
+  const isOnline = useOnlineStatus();
+  const [cachedVideos, setCachedVideos] = useState<CookingVideo[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'free' | 'vip'>('all');
+
+  useEffect(() => {
+    getWatchedVideosOffline().then((cv) => {
+      if (cv && cv.length > 0) {
+        setCachedVideos(cv);
+      }
+    });
+  }, []);
+
+  const sourceVideos = videos.length > 0 ? videos : cachedVideos;
+  const isShowingOfflineCache = videos.length === 0 && cachedVideos.length > 0;
 
   // For unauthenticated guests: strictly 3 selected tutorial videos
   const displayVideos = useMemo(() => {
     if (!currentUser) {
       // Return exactly 3 selected tutorial videos for guests
-      return videos.slice(0, 3);
+      return sourceVideos.slice(0, 3);
     }
 
-    return videos.filter((v) => {
+    return sourceVideos.filter((v) => {
       if (activeFilter === 'free' && v.isPremium) return false;
       if (activeFilter === 'vip' && !v.isPremium) return false;
 
@@ -47,7 +61,7 @@ export const VideosPage: React.FC<VideosPageProps> = ({
       }
       return true;
     });
-  }, [videos, currentUser, activeFilter, searchQuery]);
+  }, [sourceVideos, currentUser, activeFilter, searchQuery]);
 
   const handleVideoCardClick = (video: CookingVideo) => {
     if (video.isPremium && !currentUser) {
@@ -88,6 +102,21 @@ export const VideosPage: React.FC<VideosPageProps> = ({
           </button>
         )}
       </div>
+
+      {/* Offline Mode Banner */}
+      {(!isOnline || isShowingOfflineCache) && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-stone-900 border border-amber-300 dark:border-amber-700/60 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <WifiOff className="w-4 h-4 text-amber-600 shrink-0" />
+            <p className="text-stone-700 dark:text-stone-300 font-medium">
+              <strong className="text-stone-900 dark:text-white">Offline Mode:</strong> Showing previously watched culinary tutorials and cached thumbnails from your device cache.
+            </p>
+          </div>
+          <span className="text-[11px] font-bold text-amber-800 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 px-2.5 py-1 rounded-full shrink-0">
+            {displayVideos.length} cached
+          </span>
+        </div>
+      )}
 
       {/* Guest 3-Video Selected Limit Notice */}
       {!currentUser && (

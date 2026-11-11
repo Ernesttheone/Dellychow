@@ -77,8 +77,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
   );
   const [newStep, setNewStep] = useState('');
 
-  // 6. Cooking Time (in minutes)
-  const [cookingTime, setCookingTime] = useState<number>(recipeToEdit?.cookTimeMinutes || 35);
+  // 6. Cooking Time (in minutes - as stated by Chef)
+  const [cookingTime, setCookingTime] = useState<number | string>(recipeToEdit?.cookTimeMinutes || '');
 
   // 7. Food Category (e.g. Rice, Soups, Snacks, Drinks)
   const [category, setCategory] = useState<string>(recipeToEdit?.category || 'Rice');
@@ -178,8 +178,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
       return;
     }
 
-    if (!cookingTime || cookingTime < 1) {
-      setErrorMsg('Please provide a valid Cooking Time in minutes.');
+    if (!cookingTime || Number(cookingTime) < 1) {
+      setErrorMsg('Please specify the Cooking Time in minutes as stated for this meal.');
       return;
     }
 
@@ -504,7 +504,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
                 min={1}
                 max={480}
                 value={cookingTime}
-                onChange={(e) => setCookingTime(Number(e.target.value))}
+                onChange={(e) => setCookingTime(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="e.g. 25"
                 className="w-full text-base font-semibold px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 pr-12 tabular-nums"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-medium">

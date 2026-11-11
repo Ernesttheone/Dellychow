@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.25" />
+    </filter>
+  </defs>
+  
+  <!-- App Icon Background with Safe Margin (Maskable Friendly) -->
+  <rect width="512" height="512" rx="112" fill="url(#amberGrad)" />
+  
+  <!-- Subtle Inner Ring -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#ffffff" stroke-width="4" stroke-opacity="0.25" />
+  
+  <!-- Crossed Chef Fork and Knife Emblem -->
+  <g filter="url(#shadow)" fill="#ffffff" transform="translate(256, 256) scale(1.1) translate(-128, -128)">
+    <!-- Chef Hat Base -->
+    <path d="M 80,180 C 70,180 64,186 64,196 L 64,204 C 64,212 72,216 80,216 L 176,216 C 184,216 192,212 192,204 L 192,196 C 192,186 186,180 176,180 Z" fill="#ffffff" fill-opacity="0.95" />
+    <!-- Chef Hat Puffs -->
+    <path d="M 76,176 C 50,176 40,144 56,120 C 44,96 72,64 104,76 C 120,48 160,48 176,76 C 204,64 232,96 220,120 C 236,144 226,176 200,176 Z" fill="#ffffff" />
+    <!-- Gold Ribbon on Hat -->
+    <rect x="76" y="190" width="124" height="10" rx="4" fill="#fbbf24" />
+  </g>
+</svg>

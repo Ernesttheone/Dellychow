@@ -20,6 +20,7 @@ import {
 import { Recipe, CookingVideo, UserProfile, ChefReview } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
 import { VideoCard } from '../components/VideoCard';
+import { MobileYouTubeVideoCard } from '../components/MobileYouTubeVideoCard';
 import { CommunityChat } from '../components/CommunityChat';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -238,19 +239,29 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 md:space-y-10">
       
-      {/* Chef Profile Header Card with Tablet-Friendly Layout */}
-      <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 md:p-10 shadow-xs relative overflow-hidden">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          
-          {/* Avatar, Rating & Bio */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 sm:gap-6">
-            <UserAvatar
-              src={chefProfile?.photoURL}
-              seed={chefId}
-              name={displayName}
-              size="2xl"
-              className="ring-4 ring-amber-500/20 shrink-0"
-            />
+      {/* Chef Profile Header Card with YouTube Channel Banner */}
+      <div className="bg-white rounded-3xl border border-stone-200/80 shadow-xs relative overflow-hidden">
+        {/* Channel Banner */}
+        <div className="relative h-28 sm:h-40 bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 overflow-hidden">
+          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px]" />
+          <div className="absolute right-4 bottom-3 text-[11px] text-amber-200/70 font-semibold uppercase tracking-wider flex items-center gap-1.5 backdrop-blur-xs px-2.5 py-1 rounded-full bg-black/30">
+            <ChefHat className="w-3.5 h-3.5 text-amber-400" />
+            <span>Verified Master Channel</span>
+          </div>
+        </div>
+
+        <div className="p-6 sm:p-8 md:p-10 -mt-10 sm:-mt-12 relative z-10">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            
+            {/* Avatar, Rating & Bio */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 sm:gap-6">
+              <UserAvatar
+                src={chefProfile?.photoURL}
+                seed={chefId}
+                name={displayName}
+                size="2xl"
+                className="ring-4 ring-white shadow-md shrink-0 bg-stone-900"
+              />
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-serif-display text-2xl sm:text-3xl font-bold text-stone-900">
@@ -348,6 +359,7 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
 
         </div>
       </div>
+    </div>
 
       {/* Tabs navigation with Review tab */}
       <div className="flex items-center gap-2 border-b border-stone-200/80 pb-2 overflow-x-auto">
@@ -431,17 +443,34 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
               <p className="text-xs text-stone-500">Video tutorials by {displayName} will be displayed here.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-              {chefVideos.map((video) => (
-                <VideoCard
-                  key={video.id}
-                  video={video}
-                  onPlay={onPlayVideo}
-                  onShare={handleShareVideo}
-                  onRequestSubscribe={onRequestSubscribe}
-                  onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
-                />
-              ))}
+            <div>
+              {/* Mobile YouTube-Style Video Feed */}
+              <div className="block sm:hidden space-y-4">
+                {chefVideos.map((video) => (
+                  <MobileYouTubeVideoCard
+                    key={video.id}
+                    video={video}
+                    onPlay={onPlayVideo}
+                    onShare={handleShareVideo}
+                    onSelectChef={() => {}}
+                    onRequestSubscribe={onRequestSubscribe}
+                  />
+                ))}
+              </div>
+
+              {/* Tablet & Desktop Grid */}
+              <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+                {chefVideos.map((video) => (
+                  <VideoCard
+                    key={video.id}
+                    video={video}
+                    onPlay={onPlayVideo}
+                    onShare={handleShareVideo}
+                    onRequestSubscribe={onRequestSubscribe}
+                    onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>

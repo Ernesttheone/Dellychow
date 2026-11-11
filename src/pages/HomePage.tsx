@@ -14,6 +14,7 @@ import {
 import { Recipe, CookingVideo, UserProfile } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
 import { VideoCard } from '../components/VideoCard';
+import { MobileYouTubeVideoCard } from '../components/MobileYouTubeVideoCard';
 import { ASSET_IMAGES } from '../assets/images';
 import { useAuth } from '../context/AuthContext';
 
@@ -27,6 +28,7 @@ interface HomePageProps {
   onPublishStarterRecipes?: () => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
   onShareVideo?: (video: CookingVideo) => void;
+  onSelectChef?: (chefId: string) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -38,10 +40,12 @@ export const HomePage: React.FC<HomePageProps> = ({
   onRequestSubscribe,
   onPublishStarterRecipes,
   onOpenAuthModal,
-  onShareVideo
+  onShareVideo,
+  onSelectChef
 }) => {
   const { currentUser, userProfile, setPendingAction } = useAuth();
   const isChef = userProfile?.role === 'chef';
+  const [mobileCategory, setMobileCategory] = React.useState<string>('all');
 
   const categories = [
     { id: 'all', label: 'All Recipes' },
@@ -55,12 +59,96 @@ export const HomePage: React.FC<HomePageProps> = ({
   const featuredRecipes = recipes.slice(0, 6);
   const featuredVideos = videos.slice(0, 3);
 
+  const mobilePills = [
+    { id: 'all', label: 'All' },
+    { id: 'trending', label: 'Trending' },
+    { id: 'technique', label: 'Knife Skills' },
+    { id: 'rice', label: 'Rice & Grains' },
+    { id: 'soups', label: 'Soups & Stews' },
+    { id: 'pasta', label: 'Handmade Pasta' },
+    { id: 'desserts', label: 'Pastry & Baking' },
+    { id: 'vip', label: 'VIP Masterclasses' },
+  ];
+
+  const filteredMobileVideos = React.useMemo(() => {
+    return videos.filter((v) => {
+      if (mobileCategory === 'all') return true;
+      if (mobileCategory === 'vip') return v.isPremium;
+      if (mobileCategory === 'trending') return (v.viewCount || 0) >= 50;
+      const cat = (v.category || '').toLowerCase();
+      const title = (v.title || '').toLowerCase();
+      if (mobileCategory === 'technique') return cat.includes('technique') || title.includes('knife') || title.includes('prep');
+      if (mobileCategory === 'rice') return cat.includes('rice') || title.includes('rice') || title.includes('grain');
+      if (mobileCategory === 'soups') return cat.includes('soup') || title.includes('soup') || title.includes('stew');
+      if (mobileCategory === 'pasta') return cat.includes('pasta') || title.includes('pasta') || title.includes('noodle');
+      if (mobileCategory === 'desserts') return cat.includes('dessert') || title.includes('cake') || title.includes('baking') || title.includes('pastry');
+      return true;
+    });
+  }, [videos, mobileCategory]);
+
   return (
-    <div className="space-y-16 md:space-y-24 pb-16">
+    <div className="pb-16 md:pb-24">
       
-      {/* 1. Hero Section */}
-      <section className="relative overflow-hidden bg-stone-900 text-white rounded-2xl sm:rounded-3xl mx-3 sm:mx-6 lg:mx-8 mt-3 sm:mt-4 shadow-xl">
-        <div className="grid grid-cols-1 lg:grid-cols-12 min-h-0 lg:min-h-[540px] items-stretch">
+      {/* ======================================================== */}
+      {/* 1. MOBILE HOMEPAGE: YouTube-Style Vertical Feed & Filter */}
+      {/* ======================================================== */}
+      <div className="block md:hidden">
+        {/* Horizontally scrollable category filter chips (YouTube style) */}
+        <div className="sticky top-16 z-30 bg-[#FAF7F2]/95 backdrop-blur-md px-3 py-2 border-b border-stone-200/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar shadow-2xs">
+          {mobilePills.map((pill) => (
+            <button
+              key={pill.id}
+              type="button"
+              onClick={() => setMobileCategory(pill.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shadow-2xs ${
+                mobileCategory === pill.id
+                  ? 'bg-stone-900 text-white shadow-xs'
+                  : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+              }`}
+            >
+              {pill.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Vertically scrolling video feed */}
+        <div className="divide-y divide-stone-100 pt-1">
+          {filteredMobileVideos.length > 0 ? (
+            filteredMobileVideos.map((video) => (
+              <MobileYouTubeVideoCard
+                key={video.id}
+                video={video}
+                onPlay={onPlayVideo}
+                onRequestSubscribe={onRequestSubscribe}
+                onSelectChef={onSelectChef}
+                onShare={onShareVideo}
+                onOpenAuthModal={() => onOpenAuthModal?.('login')}
+              />
+            ))
+          ) : (
+            <div className="py-16 text-center space-y-2 px-4">
+              <Video className="w-10 h-10 text-stone-400 mx-auto" />
+              <p className="font-serif-display font-bold text-stone-800">No videos in this category yet</p>
+              <button
+                type="button"
+                onClick={() => setMobileCategory('all')}
+                className="px-3.5 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-xl"
+              >
+                View all videos
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ======================================================== */}
+      {/* 2. DESKTOP / TABLET HOMEPAGE (Preserved 100%) */}
+      {/* ======================================================== */}
+      <div className="hidden md:block space-y-16 md:space-y-24">
+        
+        {/* 1. Hero Section */}
+        <section className="relative overflow-hidden bg-stone-900 text-white rounded-2xl sm:rounded-3xl mx-3 sm:mx-6 lg:mx-8 mt-3 sm:mt-4 shadow-xl">
+          <div className="grid grid-cols-1 lg:grid-cols-12 min-h-0 lg:min-h-[540px] items-stretch">
           
           {/* Left Text Column */}
           <div className="lg:col-span-7 p-5 sm:p-10 lg:p-16 flex flex-col justify-between z-10 order-2 lg:order-1">
@@ -354,6 +442,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       </section>
 
+      </div>
     </div>
   );
 };

@@ -17,20 +17,29 @@ import {
   CheckCheck,
   ExternalLink,
   ShoppingCart,
-  Trophy
+  Trophy,
+  Search
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar';
+import { ThemeToggle } from './ThemeToggle';
 
 interface NavbarProps {
   currentView: string;
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal: (mode?: 'login' | 'signup', role?: UserRole) => void;
   onOpenSupportModal?: () => void;
+  onOpenSearch?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenAuthModal, onOpenSupportModal }) => {
+export const Navbar: React.FC<NavbarProps> = ({ 
+  currentView, 
+  onNavigate, 
+  onOpenAuthModal, 
+  onOpenSupportModal,
+  onOpenSearch 
+}) => {
   const { 
     currentUser, 
     userProfile, 
@@ -114,31 +123,51 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                 Chef Studio
               </button>
             )}
+
+            {/* Theme Toggle: placed after Chef Studio for chefs, or after VIP Classes for food lovers */}
+            <ThemeToggle />
           </nav>
 
           {/* Zone 3: Primary Action / User Profile & Notifications */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 md:gap-3 shrink-0">
             
-            {/* Notification Bell (for signed in users) */}
-            {currentUser && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNotificationOpen(!notificationOpen);
-                    setUserDropdownOpen(false);
-                  }}
-                  className="relative p-2 text-stone-600 hover:text-amber-800 rounded-xl hover:bg-stone-100 transition-colors"
-                  title="Notifications"
-                  aria-label="Notifications"
-                >
-                  <Bell className="w-5 h-5" />
-                  {unreadNotificationCount > 0 && (
-                    <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-amber-600 text-[9px] font-bold text-white shadow-xs animate-pulse">
-                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
-                    </span>
-                  )}
-                </button>
+            {/* YouTube-Style Search Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenSearch) onOpenSearch();
+                else onNavigate('explore');
+              }}
+              className="p-2 text-stone-600 hover:text-stone-900 rounded-xl hover:bg-stone-100 transition-colors cursor-pointer"
+              title="Search recipes, videos, chefs"
+              aria-label="Search"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+
+            {/* Notification Bell */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!currentUser) {
+                    onOpenAuthModal('login');
+                    return;
+                  }
+                  setNotificationOpen(!notificationOpen);
+                  setUserDropdownOpen(false);
+                }}
+                className="relative p-2 text-stone-600 hover:text-amber-800 rounded-xl hover:bg-stone-100 transition-colors cursor-pointer"
+                title="Notifications"
+                aria-label="Notifications"
+              >
+                <Bell className="w-5 h-5" />
+                {currentUser && unreadNotificationCount > 0 && (
+                  <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-amber-600 text-[9px] font-bold text-white shadow-xs animate-pulse">
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
 
                 {/* Notifications Popover */}
                 {notificationOpen && (
@@ -208,7 +237,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                   </div>
                 )}
               </div>
-            )}
 
             {/* Support & FAQ Button */}
             {onOpenSupportModal && (
@@ -387,6 +415,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
               Chef Studio Dashboard
             </button>
           )}
+
+          {/* Theme Toggle in Mobile Drawer */}
+          <div className="pt-2 pb-1">
+            <ThemeToggle showLabel className="w-full justify-between py-2.5 px-3" />
+          </div>
 
           {currentUser && (
             <div className="pt-2 space-y-2 border-t border-stone-200">

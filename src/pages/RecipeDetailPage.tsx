@@ -22,7 +22,8 @@ import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
 import { CookingTimer } from '../components/CookingTimer';
 import { UserAvatar } from '../components/UserAvatar';
-import { resolveVideoUrl } from '../lib/videoStorage';
+import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
+import { extractStepMinutes } from '../lib/recipeTimeUtils';
 
 interface RecipeDetailPageProps {
   recipe: Recipe;
@@ -47,6 +48,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   const [checkedIngredients, setCheckedIngredients] = useState<Record<number, boolean>>({});
   const [completedSteps, setCompletedSteps] = useState<Record<number, boolean>>({});
   const [activeTimerMinutes, setActiveTimerMinutes] = useState<number | null>(null);
+  const [activeTimerLabel, setActiveTimerLabel] = useState<string>('Chef Stated Timer');
 
   // Rating state
   const [userRating, setUserRating] = useState<number>(0);
@@ -62,11 +64,21 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
 
   // Resolve cooking video URL for all devices and users
   useEffect(() => {
+    let isMounted = true;
     if (recipe.videoUrl) {
-      resolveVideoUrl(recipe.videoUrl, recipe.id).then(setResolvedVideoUrl);
+      resolveVideoUrl(recipe.videoUrl, recipe.id).then(async (url) => {
+        if (!isMounted) return;
+        if (url && url.startsWith('/api/videos/stream/')) {
+          const exists = await checkServerStreamExists(url);
+          if (isMounted) setResolvedVideoUrl(exists ? url : '');
+        } else if (isMounted) {
+          setResolvedVideoUrl(url);
+        }
+      });
     } else {
       setResolvedVideoUrl('');
     }
+    return () => { isMounted = false; };
   }, [recipe.videoUrl, recipe.id]);
 
   // Listen to comments in real-time
@@ -296,7 +308,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
             Prep Time
           </span>
           <span className="font-serif-display text-xl font-bold text-stone-900 tabular-nums">
-            {recipe.prepTimeMinutes || 15} mins
+            {recipe.prepTimeMinutes ? `${recipe.prepTimeMinutes} mins` : 'Chef Guided'}
           </span>
         </div>
         <div className="border-l border-stone-100">
@@ -304,7 +316,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
             Cook Time
           </span>
           <span className="font-serif-display text-xl font-bold text-stone-900 tabular-nums">
-            {recipe.cookTimeMinutes || 20} mins
+            {recipe.cookTimeMinutes ? `${recipe.cookTimeMinutes} mins` : 'Chef Guided'}
           </span>
         </div>
         <div className="border-l border-stone-100">
@@ -312,7 +324,9 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
             Total Time
           </span>
           <span className="font-serif-display text-xl font-bold text-amber-700 tabular-nums">
-            {(recipe.prepTimeMinutes || 15) + (recipe.cookTimeMinutes || 20)} mins
+            {((recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0)) > 0 
+              ? `${(recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0)} mins`
+              : 'As Guided by Chef'}
           </span>
         </div>
         <div className="border-l border-stone-100">
@@ -447,8 +461,8 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
 
           {/* Kitchen Timer Widget */}
           <CookingTimer 
-            initialMinutes={activeTimerMinutes || recipe.cookTimeMinutes || 10} 
-            label="Active Cooking Step Timer"
+            initialMinutes={activeTimerMinutes || recipe.cookTimeMinutes || 5} 
+            label={activeTimerLabel}
           />
         </div>
 
@@ -492,18 +506,39 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                         </span>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => toggleStep(idx)}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
-                          isDone
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                        }`}
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{isDone ? 'Completed' : 'Mark Done'}</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const stepMinutes = extractStepMinutes(step);
+                          if (!stepMinutes) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTimerMinutes(stepMinutes);
+                                setActiveTimerLabel(`Step ${idx + 1} (${stepMinutes}m)`);
+                              }}
+                              className="text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/80 cursor-pointer"
+                              title={`Set cooking timer to ${stepMinutes} minutes as specified by the chef in this step`}
+                            >
+                              <Timer className="w-3.5 h-3.5 text-amber-600" />
+                              <span>{stepMinutes}m Step Timer</span>
+                            </button>
+                          );
+                        })()}
+
+                        <button
+                          type="button"
+                          onClick={() => toggleStep(idx)}
+                          className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
+                            isDone
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                          }`}
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{isDone ? 'Completed' : 'Mark Done'}</span>
+                        </button>
+                      </div>
                     </div>
 
                     <p className={`text-xs sm:text-sm leading-relaxed pl-9 ${

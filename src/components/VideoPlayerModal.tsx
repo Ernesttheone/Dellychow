@@ -39,17 +39,21 @@ import {
   Clock,
   Sparkles,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Timer
 } from 'lucide-react';
 import { CookingVideo, VideoComment, Recipe, ShoppingListItem } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
-import { resolveVideoUrl } from '../lib/videoStorage';
+import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
 import { ShoppingService } from '../services/shoppingService';
 import { combineIngredients } from '../lib/ingredientUtils';
 import { ShareModal, ShareItem } from './ShareModal';
 import { useVideoDiagnostics } from '../hooks/useVideoDiagnostics';
+import { recordWatchedVideoOffline } from '../lib/offlineVideoCache';
+import { CookingTimer } from './CookingTimer';
+import { extractStepMinutes } from '../lib/recipeTimeUtils';
 
 export interface VideoPlayerModalProps {
   video: CookingVideo | null;
@@ -60,6 +64,8 @@ export interface VideoPlayerModalProps {
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
   onNavigateToShopping?: () => void;
   recipes?: Recipe[];
+  videos?: CookingVideo[];
+  onSelectVideo?: (video: CookingVideo) => void;
 }
 
 export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = (props) => {
@@ -76,17 +82,21 @@ interface VideoPlayerModalContentProps {
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
   onNavigateToShopping?: () => void;
   recipes?: Recipe[];
+  videos?: CookingVideo[];
+  onSelectVideo?: (video: CookingVideo) => void;
 }
 
 const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({ 
   video, 
   onClose, 
-  onViewRecipe,
+  onViewRecipe, 
   onSelectChef,
   onRequestSubscribe,
   onOpenAuthModal,
   onNavigateToShopping,
-  recipes = []
+  recipes = [],
+  videos = [],
+  onSelectVideo
 }) => {
   const { 
     currentUser, 
@@ -168,8 +178,17 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   const [commentInput, setCommentInput] = useState<string>('');
   const [commentSubmitting, setCommentSubmitting] = useState<boolean>(false);
 
+  // Chef Step Timer state (dynamically set to what the chef says for each step)
+  const [activeStepTimerMinutes, setActiveStepTimerMinutes] = useState<number | null>(null);
+  const [activeStepTimerLabel, setActiveStepTimerLabel] = useState<string>('Step Timer');
+
   // Attached Recipe Lookup: Check video.attachedRecipe or linked recipe by recipeId
   const attachedRecipe = video?.attachedRecipe || (video?.recipeId ? recipes.find(r => r.id === video.recipeId) : null);
+
+  // Recommended / Related Cooking Videos (YouTube Style)
+  const relatedVideos = React.useMemo(() => {
+    return videos.filter(v => v.id !== video.id).slice(0, 6);
+  }, [videos, video.id]);
 
   // Synchronize on video change
   useEffect(() => {
@@ -193,6 +212,9 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
 
       // Default active tab to recipe if available, else overview
       setActiveTab(attachedRecipe ? 'recipe' : 'overview');
+
+      // Pre-cache video metadata and thumbnail in Cache API for offline viewing
+      recordWatchedVideoOffline(video);
     }
   }, [video?.id]);
 
@@ -212,9 +234,21 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     setNetworkStatusText('Resolving stream URL...');
 
     resolveVideoUrl(video.videoUrl, video.id)
-      .then((resolved) => {
+      .then(async (resolved) => {
         if (!isCancelled) {
           if (resolved) {
+            // Verify if local server stream exists before assigning to <video> to prevent Media Error 4
+            if (resolved.startsWith('/api/videos/stream/')) {
+              const streamExists = await checkServerStreamExists(resolved);
+              if (!streamExists && !isCancelled) {
+                setPlayableUrl('');
+                setVideoLoading(false);
+                setVideoError('This video file is no longer available on the server (it may have been deleted or removed).');
+                setNetworkStatusText('Video file not found on server (404)');
+                return;
+              }
+            }
+
             setPlayableUrl(resolved);
             setVideoLoading(false);
             setNetworkStatusText('Stream connected (HTTP 200/206)');
@@ -515,7 +549,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
           description: attachedRecipe.description || `${attachedRecipe.title} recipe`,
           ingredients: attachedRecipe.ingredients,
           steps: attachedRecipe.steps || [],
-          cookTimeMinutes: attachedRecipe.cookTimeMinutes || 20,
+          cookTimeMinutes: attachedRecipe.cookTimeMinutes || video.durationMinutes || 0,
           authorId: video.authorId,
           authorName: video.authorName,
           category: video.category,
@@ -768,10 +802,10 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
           {/* LEFT / TOP: YouTube-Style Player & Video Metadata */}
           <div className="flex-1 flex flex-col border-b lg:border-b-0 lg:border-r border-stone-800 min-w-0">
             
-            {/* 1. Large YouTube Player Window */}
+            {/* 1. Large YouTube Player Window (Sticky top on mobile) */}
             <div 
               ref={playerContainerRef}
-              className="relative aspect-16/9 bg-black w-full overflow-hidden select-none group"
+              className="relative aspect-16/9 bg-black w-full overflow-hidden select-none group sticky top-0 z-30 shadow-md"
               onTouchEnd={() => {
                 setShowControls(prev => !prev);
               }}
@@ -853,7 +887,11 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                   {videoError ? (
                     <div className="p-6 text-center space-y-3 max-w-md mx-auto z-20">
                       <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
-                      <h4 className="font-serif-display text-base font-bold text-white">Playback Interrupted</h4>
+                      <h4 className="font-serif-display text-base font-bold text-white">
+                        {videoError.includes('deleted or removed') || videoError.includes('no longer available')
+                          ? 'Video Unavailable'
+                          : 'Playback Interrupted'}
+                      </h4>
                       <p className="text-xs text-stone-300 leading-relaxed">{videoError}</p>
                       <div className="flex items-center justify-center gap-2 pt-1">
                         <button
@@ -921,18 +959,23 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                         setIsPlaying(false);
                         setNetworkStatusText('Completed');
                       }}
-                      onError={(e) => {
+                      onError={async () => {
                         setVideoLoading(false);
                         const mediaErr = videoElementRef.current?.error;
                         const errCode = mediaErr ? mediaErr.code : 4;
                         const errMsg = mediaErr?.message || 'Video stream could not be loaded.';
 
-                        // Execute diagnostic hook: logs video.error object, currentSrc, networkState, and verifies public accessibility
-                        logDiagnosticError(errMsg);
+                        // Verify if stream file exists or was deleted
+                        const streamExists = await checkServerStreamExists(playableUrl);
+                        if (!streamExists) {
+                          setVideoError('This cooking video file was deleted or removed from the server.');
+                          setNetworkStatusText('Video file not found on server (404)');
+                        } else {
+                          setVideoError(`Playback notice: Video stream could not be decoded (${errMsg || 'code ' + errCode}).`);
+                          setNetworkStatusText(`Playback issue (${errCode})`);
+                        }
 
-                        // Strict separation: never substitute with AI or default stream
-                        setVideoError(`Media Playback Error (${errCode}): ${errMsg}`);
-                        setNetworkStatusText(`Failed with code ${errCode}`);
+                        logDiagnosticError(errMsg);
                       }}
                       className="w-full h-full object-contain cursor-pointer"
                     >
@@ -1356,6 +1399,63 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                 </button>
               </div>
 
+              {/* YouTube-Style Recommended Videos Section */}
+              {relatedVideos.length > 0 && (
+                <div className="pt-2 border-t border-stone-800/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-stone-400">
+                      Recommended Videos
+                    </span>
+                    <span className="text-[11px] text-amber-500 font-medium">Up next</span>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {relatedVideos.map((relVideo) => (
+                      <div
+                        key={relVideo.id}
+                        onClick={() => {
+                          if (onSelectVideo) {
+                            onSelectVideo(relVideo);
+                          }
+                        }}
+                        className="flex gap-3 p-2 rounded-xl bg-stone-900/60 hover:bg-stone-900 border border-stone-800/60 hover:border-amber-500/50 transition-all cursor-pointer group"
+                      >
+                        <div className="relative w-32 aspect-16/9 rounded-lg overflow-hidden bg-stone-950 shrink-0">
+                          {relVideo.thumbnailUrl ? (
+                            <img
+                              src={relVideo.thumbnailUrl}
+                              alt={relVideo.title}
+                              className="w-full h-full object-cover group-hover:scale-103 transition-transform"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-stone-500">
+                              <Play className="w-6 h-6" />
+                            </div>
+                          )}
+                          <span className="absolute bottom-1 right-1 bg-black/80 text-[10px] font-bold text-white px-1 py-0.2 rounded tabular-nums">
+                            {relVideo.durationMinutes || 15}m
+                          </span>
+                        </div>
+
+                        <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                          <div>
+                            <h4 className="font-semibold text-xs text-stone-200 line-clamp-2 leading-snug group-hover:text-amber-400 transition-colors">
+                              {relVideo.title}
+                            </h4>
+                            <p className="text-[11px] text-stone-400 mt-1 truncate">
+                              Chef {relVideo.authorName}
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-stone-500">
+                            {(relVideo.viewCount || 100).toLocaleString()} views
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
 
@@ -1422,14 +1522,40 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                       <h3 className="font-serif-display text-lg font-bold text-white">
                         {attachedRecipe.title}
                       </h3>
-                      <div className="flex items-center gap-3 text-xs text-stone-400 mt-1">
-                        <span>Prep: {attachedRecipe.prepTimeMinutes || 15}m</span>
-                        <span>•</span>
-                        <span>Cook: {attachedRecipe.cookTimeMinutes || 20}m</span>
-                        <span>•</span>
-                        <span>Yield: {attachedRecipe.servings || 4} servings</span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-400 mt-1">
+                        {attachedRecipe.cookTimeMinutes ? (
+                          <span className="text-amber-400 font-semibold">Cook: {attachedRecipe.cookTimeMinutes}m</span>
+                        ) : video.durationMinutes ? (
+                          <span className="text-amber-400 font-semibold">Chef&apos;s Duration: {video.durationMinutes}m</span>
+                        ) : (
+                          <span className="text-stone-400 italic">Chef Stated Pace</span>
+                        )}
+                        {attachedRecipe.prepTimeMinutes ? (
+                          <>
+                            <span>•</span>
+                            <span>Prep: {attachedRecipe.prepTimeMinutes}m</span>
+                          </>
+                        ) : null}
+                        {attachedRecipe.servings ? (
+                          <>
+                            <span>•</span>
+                            <span>Yield: {attachedRecipe.servings} servings</span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
+
+                    {/* Active Step Cooking Timer (matches the time stated by the chef) */}
+                    {activeStepTimerMinutes != null && (
+                      <div className="pt-1 animate-in fade-in">
+                        <CookingTimer
+                          initialMinutes={activeStepTimerMinutes}
+                          label={activeStepTimerLabel}
+                          theme="dark"
+                          onDismiss={() => setActiveStepTimerMinutes(null)}
+                        />
+                      </div>
+                    )}
 
                     {/* MAJOR REQUIREMENT BUTTON: Add Ingredients to Shopping List */}
                     <button
@@ -1470,21 +1596,59 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                       </div>
                     </div>
 
-                    {/* Step-by-Step Instructions */}
+                    {/* Step-by-Step Instructions with Chef Stated Timers */}
                     {attachedRecipe.steps && attachedRecipe.steps.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-stone-800">
-                        <span className="block text-xs font-bold uppercase tracking-wider text-stone-400">
-                          Preparation Steps ({attachedRecipe.steps.length})
-                        </span>
-                        <div className="space-y-2">
-                          {attachedRecipe.steps.map((step, idx) => (
-                            <div key={idx} className="p-3 rounded-xl bg-stone-900/60 border border-stone-800/80 text-xs space-y-1">
-                              <span className="font-bold text-amber-400 text-[11px] uppercase tracking-wider">
-                                Step {idx + 1}
-                              </span>
-                              <p className="text-stone-300 leading-relaxed">{step}</p>
-                            </div>
-                          ))}
+                      <div className="space-y-3 pt-2 border-t border-stone-800">
+                        <div className="flex items-center justify-between">
+                          <span className="block text-xs font-bold uppercase tracking-wider text-stone-400">
+                            Preparation Steps ({attachedRecipe.steps.length})
+                          </span>
+                          <span className="text-[10px] text-amber-500 font-medium">
+                            Chef Stated Timings
+                          </span>
+                        </div>
+                        <div className="space-y-2.5">
+                          {attachedRecipe.steps.map((step, idx) => {
+                            const stepMinutes = extractStepMinutes(step);
+                            return (
+                              <div key={idx} className="p-3.5 rounded-xl bg-stone-900/70 border border-stone-800 text-xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-amber-400 text-[11px] uppercase tracking-wider">
+                                    Step {idx + 1}
+                                  </span>
+                                  {stepMinutes ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveStepTimerMinutes(stepMinutes);
+                                        setActiveStepTimerLabel(`Step ${idx + 1} (${stepMinutes}m)`);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[11px] font-bold transition-all cursor-pointer shadow-2xs border border-amber-500/30"
+                                      title={`Start ${stepMinutes}m timer as specified by the chef`}
+                                    >
+                                      <Timer className="w-3.5 h-3.5 text-amber-400" />
+                                      <span>{stepMinutes}m (Chef&apos;s Time)</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const defaultMins = attachedRecipe.cookTimeMinutes || video.durationMinutes || 5;
+                                        setActiveStepTimerMinutes(defaultMins);
+                                        setActiveStepTimerLabel(`Step ${idx + 1} Timer`);
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[10px] text-stone-500 hover:text-amber-400 transition-colors cursor-pointer"
+                                      title="Set custom timer for this step"
+                                    >
+                                      <Timer className="w-3 h-3" />
+                                      <span>Step Timer</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-stone-300 leading-relaxed text-xs">{step}</p>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

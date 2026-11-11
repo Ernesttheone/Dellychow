@@ -2,9 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, 
   Video, 
-  Save, 
   Upload, 
-  Sparkles, 
   Lock, 
   Clock,
   Camera,
@@ -20,7 +18,15 @@ import {
   Loader2,
   FlipHorizontal,
   Globe,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Share2,
+  Copy,
+  ChevronRight,
+  ChevronLeft,
+  Sparkles,
+  ShieldCheck,
+  Eye,
+  Plus
 } from 'lucide-react';
 import { Recipe, CookingVideo } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -32,24 +38,31 @@ interface ChefUploadVideoProps {
   recipes: Recipe[];
   onBack: () => void;
   onSuccess: () => void;
+  onPlayVideo?: (video: CookingVideo) => void;
 }
 
 export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   recipes,
   onBack,
-  onSuccess
+  onSuccess,
+  onPlayVideo
 }) => {
   const { currentUser, userProfile } = useAuth();
+
+  // Wizard Step: 1 = Video, 2 = Details, 3 = Visibility, 4 = Publish / Complete
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Form Fields
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState(ASSET_IMAGES.trufflePasta);
   const [durationMinutes, setDurationMinutes] = useState(15);
+  const [prepTimeMinutes, setPrepTimeMinutes] = useState(10);
   const [hasManuallySetDuration, setHasManuallySetDuration] = useState(false);
   const [category, setCategory] = useState('Technique');
   const [recipeId, setRecipeId] = useState('');
   const [isPremium, setIsPremium] = useState(false);
+  const [confirmedOwnership, setConfirmedOwnership] = useState(true);
 
   // Nutritional Information (optional)
   const [calories, setCalories] = useState<number | ''>('');
@@ -77,8 +90,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [progressStatusText, setProgressStatusText] = useState('');
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [publishedVideo, setPublishedVideo] = useState<CookingVideo | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Refs
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -87,6 +101,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   const recordedChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
 
   // Chef's own published recipes to link to
   const myRecipes = recipes.filter(r => r.authorId === currentUser?.uid);
@@ -126,7 +141,6 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         throw new Error('Camera recording is not supported by your browser.');
       }
 
-      // Request camera and microphone access strictly when user chooses to record
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: facing,
@@ -144,15 +158,13 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
       if (liveVideoRef.current) {
         liveVideoRef.current.srcObject = stream;
-        liveVideoRef.current.play().catch(() => {
-          // Play was prevented or user switched tab
-        });
+        liveVideoRef.current.play().catch(() => {});
       }
     } catch (err: any) {
-      console.error('Camera access error:', err);
+      console.info('Camera access notice:', err);
       let message = 'Unable to access camera or microphone.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        message = 'Camera and microphone permission was denied. Please allow camera and mic permissions in your browser or device settings to record.';
+        message = 'Camera and microphone permission was denied. Please allow permissions in your browser or device settings, or upload an existing file below.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         message = 'No camera or microphone was found on your device.';
       } else if (err.name === 'NotReadableError') {
@@ -175,7 +187,6 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     if (!mediaStreamRef.current) return;
     recordedChunksRef.current = [];
 
-    // Determine supported mimeType
     let mimeType = 'video/webm;codecs=vp8,opus';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
       if (MediaRecorder.isTypeSupported('video/mp4')) {
@@ -213,7 +224,6 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         setRecordingState('stopped');
         stopCameraStream();
 
-        // Automatically extract thumbnail and duration from recorded clip
         try {
           const { durationMinutes: autoDuration, thumbnailUrl: autoThumb } = 
             await extractVideoMetadataAndThumbnail(finalBlob);
@@ -224,19 +234,18 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         }
       };
 
-      recorder.start(1000); // 1-second timeslices
+      recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setRecordingState('recording');
       setRecordingSeconds(0);
 
-      // Duration timer
       if (timerIntervalRef.current) window.clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = window.setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
 
     } catch (err: any) {
-      console.error('Failed to start MediaRecorder:', err);
+      console.warn('Failed to start MediaRecorder:', err);
       setCameraError('Failed to initialize video recording on this device.');
     }
   };
@@ -327,6 +336,13 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
       setVideoSourceType('upload');
       setErrorMsg('');
 
+      // Auto-populate title if empty from clean file name
+      if (!title) {
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+        const cap = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+        setTitle(cap);
+      }
+
       // Extract duration and thumbnail
       const { durationMinutes: autoDuration, thumbnailUrl: autoThumb } = 
         await extractVideoMetadataAndThumbnail(file);
@@ -335,8 +351,19 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
     } catch (err: any) {
       console.warn('Metadata extraction notice:', err);
-      // Still allow upload even if browser metadata preview was partial
     }
+  };
+
+  const handleCustomThumbnailSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (uploadEvt) => {
+      if (uploadEvt.target?.result) {
+        setThumbnailUrl(uploadEvt.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleRemoveVideo = () => {
@@ -359,30 +386,14 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Form Submission Validation
-  const handleOpenConfirmModal = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
+  // Step 1 Validation
+  const canProceedToStep2 = Boolean(videoBlob || (videoSourceType === 'url' && customVideoUrl.trim()));
 
-    const hasVideo = videoBlob || (videoSourceType === 'url' && customVideoUrl.trim());
-    if (!hasVideo) {
-      setErrorMsg('Please record a video, select a video file, or enter a video URL.');
-      return;
-    }
+  // Step 2 Validation
+  const canProceedToStep3 = title.trim().length > 0 && description.trim().length > 0;
 
-    if (!title.trim()) {
-      setErrorMsg('Please enter a video tutorial title.');
-      return;
-    }
-
-    if (!description.trim()) {
-      setErrorMsg('Please enter a summary of what viewers will learn.');
-      return;
-    }
-
-    // Do not automatically publish without user confirmation modal
-    setShowConfirmModal(true);
-  };
+  // Step 3 Validation
+  const canProceedToStep4 = confirmedOwnership;
 
   // Final Confirmed Publish Handler
   const handleConfirmPublish = async () => {
@@ -390,13 +401,12 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     const isUrlSource = videoSourceType === 'url' && customVideoUrl.trim();
     if (!videoBlob && !isUrlSource) return;
 
-    setShowConfirmModal(false);
     setSubmitting(true);
     setUploadProgress(10);
     setProgressStatusText('Preparing video for universal cross-device playback...');
+    setErrorMsg('');
 
     try {
-      // 1. Generate unique video ID
       const newVideoId = RecipeService.generateVideoId();
       let finalPublicUrl = '';
 
@@ -408,10 +418,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         const ext = videoBlob.type.includes('webm') ? '.webm' : videoBlob.type.includes('mov') ? '.mov' : '.mp4';
         const filename = videoFileName || `video_${newVideoId}${ext}`;
 
-        // 2. Upload video binary directly to server so all food lovers on all devices have permanent streaming access
         setProgressStatusText('Uploading video masterclass to server...');
         const uploadResult = await uploadVideoToServer(videoBlob, filename, newVideoId, (pct) => {
-          setUploadProgress(15 + Math.round(pct * 0.75)); // 15% to 90%
+          setUploadProgress(15 + Math.round(pct * 0.75));
           setProgressStatusText(`Streaming video to server (${pct}%)...`);
         });
 
@@ -425,7 +434,6 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
       setProgressStatusText('Publishing masterclass to your chef profile...');
       setUploadProgress(95);
 
-      // 5. Build clean video payload with public streaming URL
       const videoData: Omit<CookingVideo, 'id' | 'createdAt'> = {
         authorId: currentUser.uid,
         authorName: userProfile?.displayName || 'Chef',
@@ -468,11 +476,16 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
       await RecipeService.createVideo(videoData, newVideoId);
 
+      const created: CookingVideo = {
+        ...videoData,
+        id: newVideoId,
+        createdAt: new Date().toISOString()
+      };
+
+      setPublishedVideo(created);
       setUploadProgress(100);
-      setProgressStatusText('Published successfully! Redirecting...');
-      setTimeout(() => {
-        onSuccess();
-      }, 700);
+      setProgressStatusText('Published successfully!');
+      setSubmitting(false);
 
     } catch (err: any) {
       console.error('Video upload error:', err);
@@ -481,10 +494,63 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     }
   };
 
+  const handleSharePublishedVideo = async () => {
+    if (!publishedVideo) return;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const shareUrl = `${origin}/?video=${publishedVideo.id}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${publishedVideo.title} | DellyChow Masterclass`,
+          text: `Watch my cooking masterclass on DellyChow!`,
+          url: shareUrl
+        });
+        return;
+      } catch {
+        // Fall back to clipboard
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleResetForAnotherUpload = () => {
+    handleRemoveVideo();
+    setTitle('');
+    setDescription('');
+    setThumbnailUrl(ASSET_IMAGES.trufflePasta);
+    setDurationMinutes(15);
+    setCategory('Technique');
+    setRecipeId('');
+    setIsPremium(false);
+    setCalories('');
+    setProtein('');
+    setCarbs('');
+    setFat('');
+    setPublishedVideo(null);
+    setUploadProgress(0);
+    setCurrentStep(1);
+  };
+
+  // Step labels for YouTube Studio Stepper
+  const stepsMeta = [
+    { num: 1, title: 'Select Video', desc: 'File or camera' },
+    { num: 2, title: 'Video Details', desc: 'Title, thumb & tags' },
+    { num: 3, title: 'Visibility', desc: 'Audience & recipe' },
+    { num: 4, title: 'Publish', desc: 'Upload & preview' }
+  ];
+
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
       
-      {/* Hidden Native File Input */}
+      {/* Hidden Native File Inputs */}
       <input
         type="file"
         ref={fileInputRef}
@@ -492,30 +558,106 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/*"
         className="hidden"
       />
+      <input
+        type="file"
+        ref={thumbnailInputRef}
+        onChange={handleCustomThumbnailSelected}
+        accept="image/*"
+        className="hidden"
+      />
 
-      {/* Top Navigation */}
-      <div>
+      {/* Top Header & Back Button */}
+      <div className="flex items-center justify-between">
         <button
           onClick={() => {
             stopCameraStream();
             onBack();
           }}
-          className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-stone-600 hover:text-stone-900 transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-stone-600 hover:text-stone-900 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to studio</span>
+          <span>Exit Studio</span>
         </button>
+
+        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+          Chef Studio · Upload
+        </span>
       </div>
 
+      {/* Title */}
       <div>
-        <h1 className="font-serif-display text-3xl font-bold text-stone-900 tracking-tight">
-          Submit Cooking Video Tutorial
+        <h1 className="font-serif-display text-2xl sm:text-3xl font-bold text-stone-900 tracking-tight">
+          Create & Upload Masterclass
         </h1>
         <p className="text-xs sm:text-sm text-stone-500 mt-1">
-          Record a new culinary tutorial directly using your device camera, or upload an existing video from your device.
+          Share your culinary techniques with food lovers across the globe with universal cross-device streaming.
         </p>
       </div>
 
+      {/* YouTube Studio 4-Step Progress Stepper */}
+      <div className="bg-white rounded-2xl border border-stone-200/90 p-3 sm:p-4 shadow-xs">
+        {/* Mobile Compact Progress Bar */}
+        <div className="block sm:hidden">
+          <div className="flex items-center justify-between text-xs font-semibold mb-2">
+            <span className="text-amber-700 font-bold">
+              Step {currentStep} of 4: <span className="text-stone-900">{stepsMeta[currentStep - 1].title}</span>
+            </span>
+            <span className="text-stone-400 text-[11px] tabular-nums">
+              {Math.round((currentStep / 4) * 100)}%
+            </span>
+          </div>
+          <div className="w-full bg-stone-100 rounded-full h-1.5 overflow-hidden">
+            <div 
+              className="bg-amber-600 h-full rounded-full transition-all duration-300"
+              style={{ width: `${(currentStep / 4) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Tablet / Desktop Stepper */}
+        <div className="hidden sm:grid grid-cols-4 gap-2">
+          {stepsMeta.map((s) => {
+            const isCompleted = currentStep > s.num;
+            const isCurrent = currentStep === s.num;
+            return (
+              <button
+                key={s.num}
+                type="button"
+                onClick={() => {
+                  if (s.num === 1) setCurrentStep(1);
+                  else if (s.num === 2 && canProceedToStep2) setCurrentStep(2);
+                  else if (s.num === 3 && canProceedToStep2 && canProceedToStep3) setCurrentStep(3);
+                  else if (s.num === 4 && canProceedToStep2 && canProceedToStep3 && canProceedToStep4) setCurrentStep(4);
+                }}
+                disabled={submitting || (s.num > currentStep && (!canProceedToStep2 || (s.num > 2 && !canProceedToStep3)))}
+                className={`p-2.5 rounded-xl text-left transition-all flex items-center gap-2.5 border ${
+                  isCurrent
+                    ? 'bg-amber-50 border-amber-300 text-amber-950 font-bold shadow-2xs'
+                    : isCompleted
+                    ? 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100 cursor-pointer'
+                    : 'bg-transparent border-transparent text-stone-400 opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
+                  isCurrent 
+                    ? 'bg-amber-600 text-white' 
+                    : isCompleted 
+                    ? 'bg-emerald-600 text-white' 
+                    : 'bg-stone-200 text-stone-500'
+                }`}>
+                  {isCompleted ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : s.num}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs truncate font-semibold leading-tight">{s.title}</p>
+                  <p className="text-[10px] text-stone-400 truncate">{s.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Global Error Banner */}
       {errorMsg && (
         <div className="p-4 bg-red-50 text-red-700 text-xs rounded-2xl border border-red-200 flex items-start gap-2 animate-in fade-in">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -523,150 +665,111 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         </div>
       )}
 
-      {/* Upload Progress Bar (displayed during upload) */}
-      {submitting && (
-        <div className="bg-white rounded-3xl border border-amber-200 p-6 shadow-md space-y-3 animate-in fade-in">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-amber-900 flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
-              <span>{progressStatusText}</span>
-            </span>
-            <span className="font-semibold text-amber-700 tabular-nums">{uploadProgress}%</span>
-          </div>
-          <div className="w-full bg-stone-100 rounded-full h-3 overflow-hidden">
-            <div 
-              className="bg-amber-600 h-full rounded-full transition-all duration-300 ease-out shadow-xs"
-              style={{ width: `${uploadProgress}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      <form onSubmit={handleOpenConfirmModal} className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs space-y-8">
-        
-        {/* SECTION: VIDEO SELECTION / RECORDING */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider">
-                Video Submission *
-              </label>
-              <p className="text-xs text-stone-500 mt-0.5">
-                Choose between recording live with your camera, uploading a video file, or pasting a web video link.
-              </p>
-            </div>
-            {(videoBlob || (videoSourceType === 'url' && customVideoUrl.trim())) && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-semibold border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Video Ready</span>
-              </span>
-            )}
+      {/* ========================================================
+          STEP 1: SELECT VIDEO (YouTube Studio Mobile Step 1)
+         ======================================================== */}
+      {currentStep === 1 && (
+        <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-8 shadow-xs space-y-6 animate-in fade-in">
+          <div>
+            <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
+              <Film className="w-5 h-5 text-amber-600" />
+              <span>Step 1: Choose Your Video Source</span>
+            </h2>
+            <p className="text-xs text-stone-500 mt-1">
+              Select an existing cooking video from your device, record live with your camera, or link an online video.
+            </p>
           </div>
 
-          {/* Option Selector Buttons */}
-          {!videoBlob && !isCameraActive && videoSourceType !== 'url' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              
-              {/* Option 1 Button: Record a Video */}
+          {/* Camera Error Message */}
+          {cameraError && (
+            <div className="p-4 bg-amber-50 text-amber-800 text-xs rounded-2xl border border-amber-200 flex items-start justify-between gap-3 animate-in fade-in">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{cameraError}</span>
+              </div>
               <button
                 type="button"
-                onClick={() => handleStartCamera()}
-                aria-label="Record a Video"
-                className="p-5 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-50 hover:border-amber-500 transition-all text-left flex flex-col justify-between gap-3 group focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                onClick={() => setCameraError(null)}
+                className="text-amber-800 hover:underline font-bold shrink-0"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                    <Camera className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-serif-display text-sm font-bold text-stone-900 group-hover:text-amber-800 transition-colors">
-                      Record Live
-                    </h4>
-                    <p className="text-[10px] text-stone-500">
-                      Camera & mic
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-stone-600 leading-relaxed">
-                  Film your cooking tutorial directly using your mobile or computer camera.
-                </p>
-
-                <div className="w-full py-2 px-3 rounded-xl bg-amber-600 group-hover:bg-amber-700 text-white text-[11px] font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 transition-colors shadow-xs">
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Record</span>
-                </div>
+                Dismiss
               </button>
-
-              {/* Option 2 Button: Upload from Device */}
-              <button
-                type="button"
-                onClick={handleTriggerFileInput}
-                aria-label="Upload from Device"
-                className="p-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50/60 hover:bg-stone-50 hover:border-stone-500 transition-all text-left flex flex-col justify-between gap-3 group focus:outline-none focus:ring-2 focus:ring-stone-500 cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                    <Upload className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <div>
-                    <h4 className="font-serif-display text-sm font-bold text-stone-900 group-hover:text-stone-700 transition-colors">
-                      Upload File
-                    </h4>
-                    <p className="text-[10px] text-stone-500">
-                      MP4, MOV, WebM
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-stone-600 leading-relaxed">
-                  Choose an existing video file saved in your gallery or device folders.
-                </p>
-
-                <div className="w-full py-2 px-3 rounded-xl bg-stone-900 group-hover:bg-stone-800 text-white text-[11px] font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 transition-colors shadow-xs">
-                  <Upload className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Upload</span>
-                </div>
-              </button>
-
-              {/* Option 3 Button: Video URL */}
-              <button
-                type="button"
-                onClick={() => {
-                  stopCameraStream();
-                  setVideoSourceType('url');
-                }}
-                aria-label="Paste Video URL"
-                className="p-5 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 hover:border-blue-500 transition-all text-left flex flex-col justify-between gap-3 group focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                    <Globe className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-serif-display text-sm font-bold text-stone-900 group-hover:text-blue-800 transition-colors">
-                      Video URL
-                    </h4>
-                    <p className="text-[10px] text-stone-500">
-                      YouTube, Vimeo, MP4
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-stone-600 leading-relaxed">
-                  Link an online tutorial from YouTube, Vimeo, or a public direct video stream.
-                </p>
-
-                <div className="w-full py-2 px-3 rounded-xl bg-blue-600 group-hover:bg-blue-700 text-white text-[11px] font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 transition-colors shadow-xs">
-                  <LinkIcon className="w-3.5 h-3.5" />
-                  <span>Enter Link</span>
-                </div>
-              </button>
-
             </div>
           )}
 
-          {/* Option 3 UI: Video URL Input Card */}
+          {/* Main Dropzone / Selection Cards when no video selected */}
+          {!videoBlob && !isCameraActive && videoSourceType !== 'url' && (
+            <div className="space-y-4">
+              {/* Primary Dropzone: Upload from Device (Files / Gallery) */}
+              <div
+                onClick={handleTriggerFileInput}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTriggerFileInput(); }}
+                className="p-8 sm:p-12 rounded-3xl border-2 border-dashed border-stone-300 hover:border-amber-500 bg-stone-50/70 hover:bg-amber-50/40 transition-all text-center flex flex-col items-center justify-center gap-3 group cursor-pointer"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-stone-900 text-white flex items-center justify-center shadow-md group-hover:scale-105 group-hover:bg-amber-600 transition-all">
+                  <Upload className="w-8 h-8 text-amber-400 group-hover:text-white" />
+                </div>
+                <div>
+                  <h3 className="font-serif-display text-lg font-bold text-stone-900 group-hover:text-amber-900 transition-colors">
+                    Select Video from Device
+                  </h3>
+                  <p className="text-xs text-stone-500 mt-0.5 max-w-sm">
+                    Tap to browse your device gallery or files. Supports MP4, WebM, MOV, and M4V.
+                  </p>
+                </div>
+                <div className="px-5 py-2.5 rounded-xl bg-stone-900 group-hover:bg-amber-600 text-white text-xs font-bold uppercase tracking-wider transition-colors shadow-xs flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-amber-400 group-hover:text-white" />
+                  <span>Choose Video File</span>
+                </div>
+              </div>
+
+              {/* Secondary Options Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleStartCamera()}
+                  className="p-4 rounded-2xl border border-stone-200 bg-white hover:bg-amber-50/50 hover:border-amber-300 transition-all text-left flex items-center gap-3.5 group cursor-pointer shadow-2xs"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-stone-900 group-hover:text-amber-900">
+                      Record Live Tutorial
+                    </h4>
+                    <p className="text-[11px] text-stone-500">
+                      Use camera and microphone
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopCameraStream();
+                    setVideoSourceType('url');
+                  }}
+                  className="p-4 rounded-2xl border border-stone-200 bg-white hover:bg-blue-50/50 hover:border-blue-300 transition-all text-left flex items-center gap-3.5 group cursor-pointer shadow-2xs"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-stone-900 group-hover:text-blue-900">
+                      Paste Online Video Link
+                    </h4>
+                    <p className="text-[11px] text-stone-500">
+                      YouTube, Vimeo, direct MP4
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Web Video URL Option Input */}
           {videoSourceType === 'url' && (
             <div className="bg-stone-900 rounded-2xl p-5 text-white border border-stone-800 space-y-4 animate-in fade-in">
               <div className="flex items-center justify-between">
@@ -679,7 +782,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 <button
                   type="button"
                   onClick={handleRemoveVideo}
-                  className="text-stone-400 hover:text-white text-xs font-semibold flex items-center gap-1"
+                  className="text-stone-400 hover:text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Change Source</span>
@@ -688,17 +791,15 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
               <div>
                 <label className="block text-[11px] text-stone-300 mb-1.5 font-medium">
-                  Direct Video URL or Embed Link (YouTube, Vimeo, or hosted MP4):
+                  Direct Video URL or Embed Link:
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={customVideoUrl}
-                    onChange={(e) => setCustomVideoUrl(e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
-                    className="flex-1 text-xs px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+                <input
+                  type="url"
+                  value={customVideoUrl}
+                  onChange={(e) => setCustomVideoUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
+                  className="w-full text-xs px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
               </div>
 
               {customVideoUrl.trim() && (
@@ -730,28 +831,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
             </div>
           )}
 
-          {/* Camera Error Message */}
-          {cameraError && (
-            <div className="p-4 bg-red-50 text-red-700 text-xs rounded-2xl border border-red-200 flex items-start justify-between gap-3 animate-in fade-in">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{cameraError}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCameraError(null)}
-                className="text-stone-400 hover:text-stone-700 font-bold"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-
-          {/* Live Camera Viewfinder & Controls (Active during recording mode) */}
+          {/* Live Camera Viewfinder & Controls */}
           {isCameraActive && (
             <div className="rounded-2xl overflow-hidden bg-black border border-stone-800 shadow-lg space-y-0 relative animate-in fade-in">
-              
-              {/* Live Video Viewfinder */}
               <div className="relative aspect-16/9 bg-stone-950 flex items-center justify-center">
                 <video
                   ref={liveVideoRef}
@@ -761,7 +843,6 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   className={`w-full h-full object-cover ${cameraFacingMode === 'user' ? 'scale-x-[-1]' : ''}`}
                 />
 
-                {/* Recording Duration Indicator Overlay */}
                 {recordingState !== 'idle' && (
                   <div className="absolute top-4 left-4 flex items-center gap-2 bg-stone-950/80 backdrop-blur-xs text-white px-3 py-1.5 rounded-full text-xs font-bold border border-white/10 shadow-lg">
                     <span className={`w-2.5 h-2.5 rounded-full ${recordingState === 'recording' ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}`} />
@@ -772,12 +853,11 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   </div>
                 )}
 
-                {/* Flip Camera Button (mobile/tablet front & back camera switch) */}
                 {recordingState === 'idle' && (
                   <button
                     type="button"
                     onClick={handleToggleCameraFacing}
-                    className="absolute top-4 right-4 p-2 bg-stone-900/80 hover:bg-stone-800 text-white rounded-full backdrop-blur-xs transition-colors flex items-center gap-1.5 text-xs font-semibold border border-white/10 shadow-md"
+                    className="absolute top-4 right-4 p-2 bg-stone-900/80 hover:bg-stone-800 text-white rounded-full backdrop-blur-xs transition-colors flex items-center gap-1.5 text-xs font-semibold border border-white/10 shadow-md cursor-pointer"
                     title="Flip camera"
                   >
                     <FlipHorizontal className="w-4 h-4" />
@@ -786,10 +866,9 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 )}
               </div>
 
-              {/* Viewfinder Action Toolbar */}
               <div className="p-4 bg-stone-900 text-white flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-stone-300">
-                  {recordingState === 'idle' && 'Position your camera and click "Start Recording" when ready.'}
+                  {recordingState === 'idle' && 'Frame your culinary setup and click "Start Recording".'}
                   {recordingState === 'recording' && 'Recording tutorial audio and video...'}
                   {recordingState === 'paused' && 'Recording paused. Click "Resume" to continue.'}
                 </div>
@@ -800,14 +879,14 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                       <button
                         type="button"
                         onClick={stopCameraStream}
-                        className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-300 hover:text-white hover:bg-stone-800 transition-colors"
+                        className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-300 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
                       >
                         Cancel
                       </button>
                       <button
                         type="button"
                         onClick={startRecording}
-                        className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2"
+                        className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
                       >
                         <span className="w-3 h-3 rounded-full bg-white animate-pulse" />
                         <span>Start Recording</span>
@@ -821,7 +900,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                         <button
                           type="button"
                           onClick={pauseRecording}
-                          className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
+                          className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                         >
                           <Pause className="w-3.5 h-3.5" />
                           <span>Pause</span>
@@ -830,7 +909,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                       <button
                         type="button"
                         onClick={stopRecording}
-                        className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2"
+                        className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
                       >
                         <Square className="w-3.5 h-3.5 fill-white" />
                         <span>Stop & Preview</span>
@@ -843,7 +922,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                       <button
                         type="button"
                         onClick={resumeRecording}
-                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
                         <Play className="w-3.5 h-3.5 fill-white" />
                         <span>Resume</span>
@@ -851,7 +930,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                       <button
                         type="button"
                         onClick={stopRecording}
-                        className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2"
+                        className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
                       >
                         <Square className="w-3.5 h-3.5 fill-white" />
                         <span>Finish Recording</span>
@@ -860,11 +939,10 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   )}
                 </div>
               </div>
-
             </div>
           )}
 
-          {/* Video Preview Player & Actions (When video has been recorded or selected) */}
+          {/* Quick Video Preview Player & File Details */}
           {videoBlob && videoPreviewUrl && (
             <div className="bg-stone-900 rounded-2xl overflow-hidden border border-stone-800 shadow-md space-y-0 text-white animate-in fade-in">
               <div className="relative aspect-16/9 bg-black">
@@ -876,18 +954,18 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 />
               </div>
 
-              {/* Preview Footer Strip */}
               <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900 border-t border-stone-800">
                 <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center gap-2">
-                    <Film className="w-4 h-4 text-amber-400 shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                     <p className="text-xs font-bold text-white truncate max-w-sm">
                       {videoFileName || 'Selected Video'}
                     </p>
                   </div>
                   <p className="text-[11px] text-stone-400">
                     {videoFileSizeMB ? `${videoFileSizeMB} MB · ` : ''}
-                    {videoSourceType === 'record' ? 'Camera recording' : 'Device file'} · Ready for submission
+                    {durationMinutes ? `${durationMinutes}m duration · ` : ''}
+                    {videoSourceType === 'record' ? 'Camera recording' : 'Device file'} · Ready for details
                   </p>
                 </div>
 
@@ -896,28 +974,27 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                     <button
                       type="button"
                       onClick={handleRetakeRecording}
-                      className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Retake Video</span>
+                      <span>Retake</span>
                     </button>
                   ) : (
                     <button
                       type="button"
                       onClick={handleTriggerFileInput}
-                      className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <Upload className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Replace Video</span>
+                      <span>Replace</span>
                     </button>
                   )}
 
                   <button
                     type="button"
                     onClick={handleRemoveVideo}
-                    className="px-3 py-1.5 bg-stone-800 hover:bg-red-950/60 hover:text-red-300 text-stone-300 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
+                    className="px-3 py-1.5 bg-stone-800 hover:bg-red-950/60 hover:text-red-300 text-stone-300 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                     title="Remove selected video"
-                    aria-label="Remove selected video"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-stone-400" />
                     <span>Remove</span>
@@ -926,117 +1003,194 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
               </div>
             </div>
           )}
-        </div>
 
-        {/* SECTION: TITLE & DESCRIPTION */}
-        <div className="space-y-4 pt-4 border-t border-stone-100">
+          {/* Step 1 Actions */}
+          <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onBack}
+              className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-semibold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (canProceedToStep2) setCurrentStep(2);
+              }}
+              disabled={!canProceedToStep2}
+              className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Next: Details</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          STEP 2: VIDEO DETAILS (YouTube Studio Mobile Step 2)
+         ======================================================== */}
+      {currentStep === 2 && (
+        <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-8 shadow-xs space-y-6 animate-in fade-in">
           <div>
-            <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">
-              Video Tutorial Title *
-            </label>
+            <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-600" />
+              <span>Step 2: Title, Description & Thumbnail</span>
+            </h2>
+            <p className="text-xs text-stone-500 mt-1">
+              Add clear video information and custom thumbnail poster for food lovers.
+            </p>
+          </div>
+
+          {/* Title with Character Limit Indicator */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider">
+                Video Title *
+              </label>
+              <span className={`text-[11px] font-semibold tabular-nums ${
+                title.length > 120 ? 'text-amber-700' : 'text-stone-400'
+              }`}>
+                {title.length} / 140
+              </span>
+            </div>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Masterclass: Rolling Fresh Tagliatelle Without a Machine"
-              required
               maxLength={140}
+              required
               className="w-full text-xs sm:text-sm px-4 py-3 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
             />
           </div>
 
+          {/* Description Box */}
           <div>
-            <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">
-              Video Summary / What Viewers Will Learn *
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider">
+                Description / What Viewers Will Learn *
+              </label>
+              <span className={`text-[11px] font-semibold tabular-nums ${
+                description.length > 450 ? 'text-amber-700' : 'text-stone-400'
+              }`}>
+                {description.length} / 500
+              </span>
+            </div>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Key techniques demonstrated, pan temperatures, chef tips..."
-              required
+              placeholder="Explain key knife grips, pan temperatures, chef tips, and timing..."
               rows={3}
               maxLength={500}
+              required
               className="w-full text-xs sm:text-sm p-4 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
             />
           </div>
-        </div>
 
-        {/* SECTION: THUMBNAIL PREVIEW */}
-        <div>
-          <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">
-            Video Thumbnail Image
-          </label>
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-            {thumbnailUrl && (
-              <div className="w-28 h-18 rounded-xl overflow-hidden bg-stone-100 border border-stone-200 shrink-0">
+          {/* Thumbnail Selection */}
+          <div>
+            <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider mb-2">
+              Thumbnail Poster
+            </label>
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+              <div className="w-36 h-22 rounded-2xl overflow-hidden bg-stone-100 border border-stone-200 shrink-0 shadow-2xs relative group">
                 <img
                   src={thumbnailUrl}
-                  alt="Video thumbnail"
+                  alt="Thumbnail preview"
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"
                 />
+                <button
+                  type="button"
+                  onClick={() => thumbnailInputRef.current?.click()}
+                  className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-[10px] font-semibold cursor-pointer"
+                >
+                  <Upload className="w-4 h-4 mb-0.5" />
+                  <span>Change Poster</span>
+                </button>
               </div>
-            )}
-            <div className="flex-1 w-full space-y-2">
-              <input
-                type="text"
-                value={thumbnailUrl}
-                onChange={(e) => setThumbnailUrl(e.target.value)}
-                placeholder="Thumbnail image URL (automatically extracted from video)"
-                className="w-full text-xs px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
-              />
-              <div className="flex items-center gap-2 text-xs text-stone-500">
-                <span className="font-medium text-[11px]">Or select a preset poster:</span>
-                <button
-                  type="button"
-                  onClick={() => setThumbnailUrl(ASSET_IMAGES.trufflePasta)}
-                  className="text-amber-700 hover:underline text-[11px]"
-                >
-                  Truffle Pasta
-                </button>
-                <span>·</span>
-                <button
-                  type="button"
-                  onClick={() => setThumbnailUrl(ASSET_IMAGES.salmonBowl)}
-                  className="text-amber-700 hover:underline text-[11px]"
-                >
-                  Salmon Bowl
-                </button>
+
+              <div className="flex-1 w-full space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => thumbnailInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-xl border border-stone-200 hover:bg-stone-50 text-xs font-semibold text-stone-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Upload Custom Image</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setThumbnailUrl(ASSET_IMAGES.trufflePasta)}
+                    className="px-2.5 py-1 rounded-lg text-[11px] bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium cursor-pointer"
+                  >
+                    Preset: Truffle Pasta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThumbnailUrl(ASSET_IMAGES.salmonBowl)}
+                    className="px-2.5 py-1 rounded-lg text-[11px] bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium cursor-pointer"
+                  >
+                    Preset: Salmon Bowl
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={thumbnailUrl}
+                  onChange={(e) => setThumbnailUrl(e.target.value)}
+                  placeholder="Or enter image URL"
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
+                />
               </div>
             </div>
           </div>
-        </div>
 
-        {/* SECTION: METADATA (CATEGORY & DURATION) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Category & Tags Selection */}
           <div>
-            <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">
-              Video Category
+            <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider mb-2">
+              Category
             </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
-            >
-              <option value="Technique">Technique</option>
-              <option value="VIP Masterclass">VIP Masterclass</option>
-              <option value="Baking & Pastry">Baking & Pastry</option>
-              <option value="Knife Skills">Knife Skills</option>
-              <option value="Sauce Emulsions">Sauce Emulsions</option>
-              <option value="Plating & Styling">Plating & Styling</option>
-            </select>
+            <div className="flex flex-wrap gap-2">
+              {[
+                'Technique',
+                'Knife Skills',
+                'Rice & Grains',
+                'Soups & Stews',
+                'Handmade Pasta',
+                'Pastry & Baking',
+                'Sauce Emulsions',
+                'VIP Masterclass'
+              ].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setCategory(cat)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                    category === cat
+                      ? 'bg-amber-600 text-white font-bold shadow-xs'
+                      : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider">
-                Tutorial Duration (Minutes)
-              </label>
-              <span className="text-[11px] text-amber-700 font-medium">
-                Chef manual time limit
-              </span>
-            </div>
-            <div className="space-y-2">
+          {/* Cooking Duration & Prep Time */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider">
+                  Tutorial Video Duration
+                </label>
+                <span className="text-[11px] text-amber-700 font-medium">Chef Custom Time</span>
+              </div>
               <div className="relative">
                 <input
                   type="number"
@@ -1044,238 +1198,485 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   value={durationMinutes || ''}
                   onChange={(e) => {
                     setHasManuallySetDuration(true);
-                    const val = e.target.value === '' ? 0 : Number(e.target.value);
-                    setDurationMinutes(val);
+                    setDurationMinutes(e.target.value === '' ? 0 : Number(e.target.value));
                   }}
-                  placeholder="Enter minutes (e.g. 15, 30, 45)"
-                  required
-                  className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 tabular-nums pr-12"
+                  className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 pr-12 tabular-nums"
                 />
                 <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-semibold uppercase">
                   min
                 </span>
               </div>
-
-              {/* Quick Preset Buttons for Chef */}
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                {[5, 10, 15, 20, 30, 45, 60, 90, 120].map((mins) => (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {[5, 10, 15, 20, 30, 45, 60].map((m) => (
                   <button
-                    key={mins}
+                    key={m}
                     type="button"
                     onClick={() => {
                       setHasManuallySetDuration(true);
-                      setDurationMinutes(mins);
+                      setDurationMinutes(m);
                     }}
-                    className={`px-2.5 py-1 text-[11px] rounded-lg font-medium transition-colors ${
-                      durationMinutes === mins
-                        ? 'bg-amber-600 text-white font-bold shadow-xs'
-                        : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200'
+                    className={`px-2 py-0.5 text-[11px] rounded-md font-medium cursor-pointer ${
+                      durationMinutes === m ? 'bg-amber-600 text-white font-bold' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
                     }`}
                   >
-                    {mins}m
+                    {m}m
                   </button>
                 ))}
               </div>
-              <p className="text-[11px] text-stone-500">
-                You can set your own custom time limit manually for this cooking tutorial.
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider mb-1.5">
+                Preparation Time (Optional)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={0}
+                  value={prepTimeMinutes || ''}
+                  onChange={(e) => setPrepTimeMinutes(e.target.value === '' ? 0 : Number(e.target.value))}
+                  placeholder="e.g. 10"
+                  className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 pr-12 tabular-nums"
+                />
+                <span className="absolute right-3.5 top-2.5 text-xs text-stone-400 font-semibold uppercase">
+                  min
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-500 mt-2">
+                Estimated kitchen mise-en-place prep time.
               </p>
             </div>
           </div>
-        </div>
 
-        {/* SECTION: LINKED RECIPE */}
-        {myRecipes.length > 0 && (
-          <div>
-            <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">
-              Link to Existing Published Recipe (Optional)
-            </label>
-            <select
-              value={recipeId}
-              onChange={(e) => setRecipeId(e.target.value)}
-              className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
+          {/* Step 2 Actions */}
+          <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCurrentStep(1)}
+              className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-semibold text-xs uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <option value="">None (Standalone Video Tutorial)</option>
-              {myRecipes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.title} ({r.category})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              <ChevronLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
 
-        {/* SECTION: NUTRITIONAL PROFILE */}
-        <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (canProceedToStep3) setCurrentStep(3);
+                else setErrorMsg('Please enter both a title and summary to proceed.');
+              }}
+              disabled={!canProceedToStep3}
+              className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Next: Visibility</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          STEP 3: VISIBILITY & AUDIENCE (YouTube Studio Mobile Step 3)
+         ======================================================== */}
+      {currentStep === 3 && (
+        <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-8 shadow-xs space-y-6 animate-in fade-in">
           <div>
-            <h4 className="text-xs font-bold text-stone-900 uppercase tracking-wider">
-              Nutritional Profile per Serving (Optional)
-            </h4>
-            <p className="text-[11px] text-stone-500">
-              Provide estimated macros and calorie count to help health-conscious food lovers.
+            <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
+              <Eye className="w-5 h-5 text-amber-600" />
+              <span>Step 3: Visibility & Recipe Association</span>
+            </h2>
+            <p className="text-xs text-stone-500 mt-1">
+              Choose who can watch this masterclass and optionally link it to a full recipe card.
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Calories (kcal)</label>
-              <input
-                type="number"
-                min={0}
-                max={5000}
-                value={calories}
-                onChange={(e) => setCalories(e.target.value ? Number(e.target.value) : '')}
-                placeholder="e.g. 480"
-                className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Protein</label>
-              <input
-                type="text"
-                value={protein}
-                onChange={(e) => setProtein(e.target.value)}
-                placeholder="e.g. 38g"
-                className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Carbs</label>
-              <input
-                type="text"
-                value={carbs}
-                onChange={(e) => setCarbs(e.target.value)}
-                placeholder="e.g. 45g"
-                className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Fat</label>
-              <input
-                type="text"
-                value={fat}
-                onChange={(e) => setFat(e.target.value)}
-                placeholder="e.g. 22g"
-                className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
+          {/* Visibility Options */}
+          <div className="space-y-3">
+            <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider">
+              Audience & Access Level *
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              
+              {/* Option 1: Public Free */}
+              <div
+                onClick={() => setIsPremium(false)}
+                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3 ${
+                  !isPremium 
+                    ? 'border-emerald-500 bg-emerald-50/50 shadow-xs' 
+                    : 'border-stone-200 bg-white hover:bg-stone-50'
+                }`}
+              >
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                  !isPremium ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-stone-300'
+                }`}>
+                  {!isPremium && <Check className="w-3 h-3 stroke-[3]" />}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-stone-900">
+                    Public (Free for All Food Lovers)
+                  </h4>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    Everyone on Deli Chow can discover and watch this tutorial without paying.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 2: VIP Masterclass */}
+              <div
+                onClick={() => setIsPremium(true)}
+                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3 ${
+                  isPremium 
+                    ? 'border-amber-500 bg-amber-50/60 shadow-xs' 
+                    : 'border-stone-200 bg-white hover:bg-stone-50'
+                }`}
+              >
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                  isPremium ? 'border-amber-600 bg-amber-600 text-white' : 'border-stone-300'
+                }`}>
+                  {isPremium && <Check className="w-3 h-3 stroke-[3]" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <h4 className="text-xs font-bold text-stone-900">
+                      VIP Circle Subscribers Only
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    Restricted exclusively to food lovers who subscribe to your VIP culinary kitchen.
+                  </p>
+                </div>
+              </div>
+
             </div>
           </div>
-        </div>
 
-        {/* SECTION: VIP EXCLUSIVE TOGGLE */}
-        <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 flex items-center justify-between">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-amber-700" />
-              <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">
-                VIP Subscriber Exclusive
-              </span>
+          {/* Recipe Association (Link to Recipe) */}
+          {myRecipes.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-stone-900 uppercase tracking-wider mb-1.5">
+                Link to Existing Recipe Guide (Optional)
+              </label>
+              <select
+                value={recipeId}
+                onChange={(e) => setRecipeId(e.target.value)}
+                className="w-full text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
+              >
+                <option value="">None (Standalone Masterclass)</option>
+                {myRecipes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title} ({r.category})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-stone-500 mt-1">
+                When linked, viewers can open your step-by-step recipe card directly from the video player.
+              </p>
             </div>
-            <p className="text-[11px] text-amber-800">
-              Only paying subscribers to your VIP kitchen circle will have full access to this video masterclass.
-            </p>
-          </div>
+          )}
 
-          <input
-            type="checkbox"
-            checked={isPremium}
-            onChange={(e) => setIsPremium(e.target.checked)}
-            className="w-5 h-5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
-          />
-        </div>
+          {/* Nutritional Profile */}
+          <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
+            <div>
+              <h4 className="text-xs font-bold text-stone-900 uppercase tracking-wider">
+                Nutritional Profile per Serving (Optional)
+              </h4>
+              <p className="text-[11px] text-stone-500">
+                Provide estimated macros to help nutrition-conscious home cooks.
+              </p>
+            </div>
 
-        {/* SECTION: ACTIONS */}
-        <div className="pt-4 border-t border-stone-100 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              stopCameraStream();
-              onBack();
-            }}
-            disabled={submitting}
-            className="px-5 py-2.5 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 font-semibold text-xs uppercase tracking-wider transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="submit"
-            disabled={submitting || (!videoBlob && !(videoSourceType === 'url' && customVideoUrl.trim()))}
-            className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            <span>Proceed to Submit</span>
-          </button>
-        </div>
-
-      </form>
-
-      {/* CONFIRMATION MODAL (Strict requirement: do not automatically publish without user confirmation) */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-stone-200 space-y-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-                <Video className="w-6 h-6" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Calories (kcal)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={calories}
+                  onChange={(e) => setCalories(e.target.value ? Number(e.target.value) : '')}
+                  placeholder="e.g. 480"
+                  className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
               </div>
               <div>
-                <h3 className="font-serif-display text-xl font-bold text-stone-900">
-                  Confirm Video Publication
-                </h3>
-                <p className="text-xs text-stone-500">
-                  Please review and confirm publishing this video tutorial to DellyChow.
-                </p>
+                <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Protein</label>
+                <input
+                  type="text"
+                  value={protein}
+                  onChange={(e) => setProtein(e.target.value)}
+                  placeholder="e.g. 38g"
+                  className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
               </div>
-            </div>
-
-            <div className="bg-stone-50 rounded-2xl p-4 border border-stone-200 space-y-2 text-xs">
-              <div className="flex justify-between text-stone-600">
-                <span className="font-medium">Title:</span>
-                <span className="font-bold text-stone-900 truncate max-w-[200px]">{title}</span>
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Carbs</label>
+                <input
+                  type="text"
+                  value={carbs}
+                  onChange={(e) => setCarbs(e.target.value)}
+                  placeholder="e.g. 45g"
+                  className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
               </div>
-              <div className="flex justify-between text-stone-600">
-                <span className="font-medium">Category:</span>
-                <span className="font-semibold text-stone-800">{category}</span>
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-600 uppercase mb-1">Fat</label>
+                <input
+                  type="text"
+                  value={fat}
+                  onChange={(e) => setFat(e.target.value)}
+                  placeholder="e.g. 22g"
+                  className="w-full text-xs px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
               </div>
-              <div className="flex justify-between text-stone-600">
-                <span className="font-medium">Duration:</span>
-                <span className="font-semibold text-stone-800">{durationMinutes} minutes</span>
-              </div>
-              <div className="flex justify-between text-stone-600">
-                <span className="font-medium">Access Tier:</span>
-                <span className={`font-bold ${isPremium ? 'text-amber-700' : 'text-emerald-700'}`}>
-                  {isPremium ? 'VIP Subscribers Only' : 'Free Tutorial for All Food Lovers'}
-                </span>
-              </div>
-              <div className="flex justify-between text-stone-600 pt-1 border-t border-stone-200">
-                <span className="font-medium">Source:</span>
-                <span className="text-stone-700">
-                  {videoSourceType === 'record' ? 'Camera Recording' : videoSourceType === 'url' ? 'Web Video URL' : videoFileName || 'Device File'}
-                </span>
-              </div>
-            </div>
-
-            <p className="text-xs text-stone-500 leading-relaxed">
-              Once published, this video will be securely stored and linked to your chef profile. You can edit or delete this video at any time from your Chef Studio dashboard.
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 font-semibold text-xs transition-colors"
-              >
-                Review Details
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmPublish}
-                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2"
-              >
-                <Check className="w-4 h-4" />
-                <span>Confirm & Publish</span>
-              </button>
             </div>
           </div>
+
+          {/* Content Ownership Confirmation */}
+          <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 flex items-start gap-3">
+            <input
+              type="checkbox"
+              id="ownershipCheck"
+              checked={confirmedOwnership}
+              onChange={(e) => setConfirmedOwnership(e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+            />
+            <label htmlFor="ownershipCheck" className="text-xs text-stone-700 cursor-pointer">
+              <span className="font-bold text-stone-900 block">Original Culinary Content Confirmation</span>
+              I confirm that this video is original content created by me or authorized for publication on Deli Chow, adhering to community guidelines.
+            </label>
+          </div>
+
+          {/* Step 3 Actions */}
+          <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCurrentStep(2)}
+              className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-semibold text-xs uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (canProceedToStep4) setCurrentStep(4);
+              }}
+              disabled={!canProceedToStep4}
+              className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Next: Review & Publish</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          STEP 4: UPLOAD & PUBLISH (YouTube Studio Mobile Step 4)
+         ======================================================== */}
+      {currentStep === 4 && (
+        <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-8 shadow-xs space-y-6 animate-in fade-in">
+          
+          {/* STATE A: SUCCESS SCREEN (Once published) */}
+          {publishedVideo ? (
+            <div className="text-center py-6 space-y-6 animate-in fade-in">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center shadow-sm">
+                <CheckCircle2 className="w-9 h-9 stroke-[2.5]" />
+              </div>
+
+              <div className="space-y-1">
+                <h2 className="font-serif-display text-2xl font-bold text-stone-900">
+                  Masterclass Published Successfully!
+                </h2>
+                <p className="text-xs sm:text-sm text-stone-500 max-w-md mx-auto">
+                  Your cooking video is now live on Deli Chow and ready for food lovers worldwide.
+                </p>
+              </div>
+
+              {/* Published Video Summary Card */}
+              <div className="max-w-md mx-auto bg-stone-50 rounded-2xl border border-stone-200 p-4 text-left flex gap-4 items-center">
+                <div className="w-24 h-16 rounded-xl overflow-hidden bg-stone-900 shrink-0">
+                  <img
+                    src={publishedVideo.thumbnailUrl}
+                    alt={publishedVideo.title}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-xs font-bold text-stone-900 truncate">
+                    {publishedVideo.title}
+                  </h4>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    {publishedVideo.category} · {publishedVideo.durationMinutes}m · {publishedVideo.isPremium ? 'VIP' : 'Free'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions Grid */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                {onPlayVideo && (
+                  <button
+                    type="button"
+                    onClick={() => onPlayVideo(publishedVideo)}
+                    className="w-full sm:w-auto px-6 py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>Watch Now</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSharePublishedVideo}
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-800 font-semibold text-xs uppercase tracking-wider transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4 text-stone-600" />}
+                  <span>{copiedLink ? 'Link Copied!' : 'Share Video Link'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetForAnotherUpload}
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-800 font-semibold text-xs uppercase tracking-wider transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 text-stone-600" />
+                  <span>Upload Another</span>
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={onSuccess}
+                  className="text-xs text-amber-700 hover:underline font-semibold cursor-pointer"
+                >
+                  Return to Chef Studio Dashboard
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* STATE B: REVIEW & UPLOAD / PROGRESS SCREEN */
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-amber-600" />
+                  <span>Step 4: Review & Publish Masterclass</span>
+                </h2>
+                <p className="text-xs text-stone-500 mt-1">
+                  Verify your video summary before finalizing and streaming to Deli Chow.
+                </p>
+              </div>
+
+              {/* Upload Progress Bar (when active) */}
+              {submitting ? (
+                <div className="bg-stone-50 rounded-2xl border border-amber-200 p-6 space-y-4 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-amber-900 flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                      <span>{progressStatusText || 'Uploading video to server...'}</span>
+                    </span>
+                    <span className="font-bold text-amber-700 tabular-nums text-sm">{uploadProgress}%</span>
+                  </div>
+
+                  <div className="w-full bg-stone-200 rounded-full h-3 overflow-hidden">
+                    <div 
+                      className="bg-amber-600 h-full rounded-full transition-all duration-300 ease-out shadow-xs"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-stone-500 text-center">
+                    Please keep this window open while your masterclass is encoded and published.
+                  </p>
+                </div>
+              ) : (
+                /* Summary Card */
+                <div className="space-y-4">
+                  <div className="bg-stone-50 rounded-2xl p-4 sm:p-5 border border-stone-200 space-y-3 text-xs">
+                    <div className="flex items-center gap-4 pb-3 border-b border-stone-200">
+                      <div className="w-24 h-16 rounded-xl overflow-hidden bg-stone-900 shrink-0">
+                        <img
+                          src={thumbnailUrl}
+                          alt="Thumbnail preview"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-stone-900 text-sm truncate">{title}</h4>
+                        <p className="text-stone-500 line-clamp-1 mt-0.5">{description}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+                      <div>
+                        <span className="text-stone-500 block text-[11px]">Category</span>
+                        <span className="font-semibold text-stone-800">{category}</span>
+                      </div>
+                      <div>
+                        <span className="text-stone-500 block text-[11px]">Duration</span>
+                        <span className="font-semibold text-stone-800">{durationMinutes} minutes</span>
+                      </div>
+                      <div>
+                        <span className="text-stone-500 block text-[11px]">Audience</span>
+                        <span className={`font-bold ${isPremium ? 'text-amber-700' : 'text-emerald-700'}`}>
+                          {isPremium ? 'VIP Subscribers Only' : 'Free for Everyone'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-stone-500 block text-[11px]">Video Source</span>
+                        <span className="font-semibold text-stone-800">
+                          {videoSourceType === 'record' ? 'Camera Recording' : videoSourceType === 'url' ? 'Web URL' : videoFileName || 'Device File'}
+                        </span>
+                      </div>
+                      {recipeId && (
+                        <div>
+                          <span className="text-stone-500 block text-[11px]">Attached Recipe</span>
+                          <span className="font-semibold text-stone-800">Linked to Guide</span>
+                        </div>
+                      )}
+                      {calories && (
+                        <div>
+                          <span className="text-stone-500 block text-[11px]">Calories</span>
+                          <span className="font-semibold text-stone-800">{calories} kcal</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Confirmation note */}
+                  <p className="text-xs text-stone-500 leading-relaxed">
+                    By clicking <strong className="text-stone-700">"Publish Video Masterclass"</strong>, your video will be uploaded to Deli Chow storage and linked to your chef profile.
+                  </p>
+
+                  {/* Step 4 Actions */}
+                  <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(3)}
+                      disabled={submitting}
+                      className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-semibold text-xs uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span>Back</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleConfirmPublish}
+                      disabled={submitting}
+                      className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Publish Video Masterclass</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
