@@ -90,8 +90,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </button>
 
-          {/* Zone 2: Navigation Links (optimized for Tablet 768px-1024px & Desktop) */}
-          <nav className="hidden md:flex items-center gap-3 md:gap-4 lg:gap-7 text-xs lg:text-sm font-medium text-stone-600">
+          {/* Zone 2: Navigation Links (hidden on mobile/tablet, full on lg: 1024px+) */}
+          <nav className="hidden lg:flex items-center gap-3 xl:gap-6 text-xs lg:text-sm font-medium text-stone-600">
             {navLinks.map((link) => {
               const isActive = currentView === link.id;
               return (
@@ -124,7 +124,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Theme Toggle: placed after Chef Studio for chefs, or after VIP Classes for food lovers */}
+            {/* Theme Toggle */}
             <ThemeToggle />
           </nav>
 
@@ -380,10 +380,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
-            {/* Mobile / Small-Tablet Hamburger */}
+            {/* Mobile & Tablet Hamburger */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 text-stone-600 hover:text-stone-900 focus:outline-none shrink-0"
+              className="lg:hidden p-2 text-stone-600 hover:text-stone-900 focus:outline-none shrink-0"
               aria-label="Toggle menu"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -392,9 +392,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Drawer */}
+      {/* Mobile & Tablet Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-stone-200 bg-[#FAF7F2] px-4 pt-3 pb-6 space-y-2">
+        <div className="lg:hidden border-t border-stone-200 bg-[#FAF7F2] px-4 pt-3 pb-6 space-y-2">
           {navLinks.map((link) => (
             <button
               key={link.id}

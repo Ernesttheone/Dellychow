@@ -167,11 +167,14 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [shareItem, setShareItem] = useState<ShareItem | null>(null);
 
-  // VIP Preview State (10-second preview for VIP videos)
+  // VIP Preview State (10-second preview for VIP live sessions for ANY user: chef and food lover)
   const isOwnerChef = Boolean(currentUser?.uid && video?.authorId && currentUser.uid === video.authorId);
-  const isVipVideo = Boolean(video?.isPremium || video?.category?.toLowerCase().includes('vip'));
-  const hasActiveSubscription = video ? (isOwnerChef || isSubscribedToChef(video.authorId)) : false;
-  const isVipProtected = isVipVideo && !hasActiveSubscription;
+  const isVipVideo = Boolean(video?.isPremium || video?.category?.toLowerCase().includes('vip') || video?.title?.toLowerCase().includes('vip'));
+  // Unlocked state allowing playback after preview completion or subscriber bypass
+  const [unlockedInSession, setUnlockedInSession] = useState<boolean>(false);
+  // Apply 10-second preview countdown to ANY user (both chef and food lover)
+  const isVipProtected = isVipVideo && !unlockedInSession;
+  const [hasStartedPlay, setHasStartedPlay] = useState<boolean>(false);
   const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number>(10);
   const [previewEnded, setPreviewEnded] = useState<boolean>(false);
 
@@ -200,6 +203,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       setIsFollowing(false);
       setFollowerCount(0);
       setCommentInput('');
+      setUnlockedInSession(false);
+      setHasStartedPlay(false);
       setPreviewSecondsLeft(10);
       setPreviewEnded(false);
       setVideoLoading(true);
@@ -313,14 +318,12 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     return () => unsub();
   }, [video?.id]);
 
-  // 10-Second VIP Preview Timer
+  // 10-Second VIP Preview Timer (Starts after any user: chef and food lover clicks play)
   useEffect(() => {
-    if (!video || !isVipProtected) return;
+    if (!video || !isVipProtected || previewEnded) return;
+    if (!hasStartedPlay || !isPlaying) return;
 
-    setPreviewSecondsLeft(10);
-    setPreviewEnded(false);
-
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       setPreviewSecondsLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
@@ -335,8 +338,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [video?.id, isVipProtected]);
+    return () => window.clearInterval(interval);
+  }, [video?.id, isVipProtected, hasStartedPlay, isPlaying, previewEnded]);
 
   // Video Controls Handlers
   const togglePlayPause = () => {
@@ -344,6 +347,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     if (!videoElementRef.current) return;
 
     if (videoElementRef.current.paused || videoElementRef.current.ended) {
+      setHasStartedPlay(true);
+      setIsPlaying(true);
       videoElementRef.current.play().then(() => {
         setIsPlaying(true);
         setHasReachedPlaying(true);
@@ -407,6 +412,13 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     if (!videoElementRef.current) return;
     setCurrentTime(videoElementRef.current.currentTime);
     
+    // Safety check: enforce 10-second preview limit for VIP sessions
+    if (isVipProtected && hasStartedPlay && (previewSecondsLeft <= 0 || (videoElementRef.current && videoElementRef.current.currentTime >= 10)) && !previewEnded) {
+      setPreviewEnded(true);
+      videoElementRef.current.pause();
+      setIsPlaying(false);
+    }
+
     // Update buffered range
     if (videoElementRef.current.buffered.length > 0) {
       const bufferedEnd = videoElementRef.current.buffered.end(videoElementRef.current.buffered.length - 1);
@@ -775,23 +787,33 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
               <span className="font-bold uppercase tracking-wider text-[11px]">VIP Live Session Preview</span>
               <span>·</span>
               <span>
-                {previewEnded ? '10-Second Free Preview Completed' : `Preview Remaining: ${previewSecondsLeft}s`}
+                {previewEnded 
+                  ? '10-Second Free Preview Completed' 
+                  : !hasStartedPlay 
+                  ? '10s Count Down Starts When Play Is Clicked' 
+                  : `Preview Count Down: ${previewSecondsLeft}s`}
               </span>
             </div>
 
             <button
               type="button"
               onClick={() => {
-                if (!currentUser) {
+                if (isOwnerChef || isSubscribedToChef(video.authorId)) {
+                  setUnlockedInSession(true);
+                  setPreviewEnded(false);
+                  if (videoElementRef.current) {
+                    videoElementRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                  }
+                } else if (!currentUser) {
                   if (onOpenAuthModal) onOpenAuthModal('login');
                 } else if (onRequestSubscribe) {
                   onRequestSubscribe(video.authorId, video.authorName);
                 }
               }}
-              className="px-3 py-1 bg-stone-900 hover:bg-stone-800 text-amber-300 font-bold rounded-lg text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center gap-1.5"
+              className="px-3 py-1 bg-stone-900 hover:bg-stone-800 text-amber-300 font-bold rounded-lg text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Crown className="w-3.5 h-3.5 text-amber-400" />
-              <span>Unlock Full Masterclass</span>
+              <span>{isOwnerChef ? 'Unlock Full Chef Masterclass' : 'Unlock Full Masterclass'}</span>
             </button>
           </div>
         )}
@@ -862,7 +884,13 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        if (!currentUser) {
+                        if (isOwnerChef || isSubscribedToChef(video.authorId)) {
+                          setUnlockedInSession(true);
+                          setPreviewEnded(false);
+                          if (videoElementRef.current) {
+                            videoElementRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                          }
+                        } else if (!currentUser) {
                           if (onOpenAuthModal) onOpenAuthModal('login');
                         } else if (onRequestSubscribe) {
                           onRequestSubscribe(video.authorId, video.authorName);
@@ -871,12 +899,28 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                       className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
                     >
                       <Crown className="w-4 h-4 text-amber-200" />
-                      <span>{currentUser ? 'Join VIP Circle & Continue Watching' : 'Sign In to Subscribe'}</span>
+                      <span>{isOwnerChef ? 'Continue as Chef / Unlock Full Video' : isSubscribedToChef(video.authorId) ? 'Continue Watching (Subscriber)' : currentUser ? 'Join VIP Circle & Continue Watching' : 'Sign In to Subscribe'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewSecondsLeft(10);
+                        setPreviewEnded(false);
+                        setHasStartedPlay(false);
+                        if (videoElementRef.current) {
+                          videoElementRef.current.currentTime = 0;
+                          setCurrentTime(0);
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Replay 10s Preview</span>
                     </button>
                     <button
                       type="button"
                       onClick={onClose}
-                      className="px-4 py-2.5 text-xs text-stone-400 hover:text-white transition-colors"
+                      className="px-4 py-2.5 text-xs text-stone-400 hover:text-white transition-colors cursor-pointer"
                     >
                       Browse Other Videos
                     </button>
@@ -958,12 +1002,14 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                         setVideoLoading(false);
                       }}
                       onPlay={() => {
+                        setHasStartedPlay(true);
                         setIsPlaying(true);
                         setHasReachedPlaying(true);
                         setNetworkStatusText('Playing (HTTP 206 stream)');
                       }}
                       onPlaying={() => {
                         setVideoLoading(false);
+                        setHasStartedPlay(true);
                         setIsPlaying(true);
                         setHasReachedPlaying(true);
                         setNetworkStatusText('Playing (HTTP 206 stream)');
