@@ -88,8 +88,8 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
             photoURL: ASSET_IMAGES.chefAvatar,
             premiumPriceMonthly: 9.99,
             perks: 'Weekly video masterclasses, secret sauce chemistry notes, live Sunday cook-along, and direct Q&A in the VIP kitchen.',
-            subscriberCount: 142,
-            followerCount: 2840,
+            subscriberCount: 0,
+            followerCount: 0,
             createdAt: new Date().toISOString()
           });
         }
@@ -307,12 +307,12 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
               <div className="flex items-center gap-5 sm:gap-6 pt-1 text-xs text-stone-500 font-medium">
                 <div>
                   <strong className="text-stone-900 text-sm tabular-nums">
-                    {(chefProfile?.followerCount || 240) + (isFollowing ? 1 : 0)}
+                    {chefProfile?.followerCount || 0}
                   </strong> Followers
                 </div>
                 <div>
                   <strong className="text-stone-900 text-sm tabular-nums">
-                    {chefProfile?.subscriberCount || 18}
+                    {chefProfile?.subscriberCount || 0}
                   </strong> VIP Members
                 </div>
                 <div>

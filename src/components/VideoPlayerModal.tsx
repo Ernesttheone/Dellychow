@@ -44,6 +44,8 @@ import {
 } from 'lucide-react';
 import { CookingVideo, VideoComment, Recipe, ShoppingListItem } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
 import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
@@ -149,7 +151,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   const [isFollowing, setIsFollowing] = useState<boolean>(false);
   const [notificationPref, setNotificationPref] = useState<'all' | 'personalized' | 'none'>('all');
   const [showNotificationMenu, setShowNotificationMenu] = useState<boolean>(false);
-  const [followerCount, setFollowerCount] = useState<number>(420);
+  const [followerCount, setFollowerCount] = useState<number>(0);
 
   // UI Tabs & Views: 'recipe' | 'shopping' | 'comments' | 'overview'
   const [activeTab, setActiveTab] = useState<'recipe' | 'shopping' | 'comments' | 'overview'>('recipe');
@@ -193,10 +195,10 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   // Synchronize on video change
   useEffect(() => {
     if (video) {
-      setLikes(video.likesCount || 24);
+      setLikes(video.likesCount || 0);
       setHasLiked(false);
       setIsFollowing(false);
-      setFollowerCount(450);
+      setFollowerCount(0);
       setCommentInput('');
       setPreviewSecondsLeft(10);
       setPreviewEnded(false);
@@ -209,6 +211,15 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       setShowDiagnostics(false);
       setDescriptionExpanded(false);
       setShoppingItemsAddedToast(null);
+
+      // Fetch real follower count from chef user document
+      if (video.authorId) {
+        getDoc(doc(db, 'users', video.authorId)).then(snap => {
+          if (snap.exists()) {
+            setFollowerCount(snap.data().followerCount || 0);
+          }
+        }).catch(() => {});
+      }
 
       // Default active tab to recipe if available, else overview
       setActiveTab(attachedRecipe ? 'recipe' : 'overview');
@@ -502,7 +513,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     }
   };
 
-  const handleFollowChef = () => {
+  const handleFollowChef = async () => {
     if (!currentUser) {
       setPendingAction({
         type: 'follow_chef',
@@ -513,12 +524,18 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       return;
     }
 
-    if (isFollowing) {
-      setIsFollowing(false);
-      setFollowerCount(prev => Math.max(0, prev - 1));
-    } else {
-      setIsFollowing(true);
-      setFollowerCount(prev => prev + 1);
+    const nextState = !isFollowing;
+    setIsFollowing(nextState);
+    const newCount = Math.max(0, followerCount + (nextState ? 1 : -1));
+    setFollowerCount(newCount);
+
+    if (video.authorId) {
+      try {
+        const chefDocRef = doc(db, 'users', video.authorId);
+        await updateDoc(chefDocRef, { followerCount: newCount });
+      } catch (err) {
+        console.warn('Could not update chef follower count:', err);
+      }
     }
   };
 
