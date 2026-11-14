@@ -18,19 +18,46 @@ async function startServer() {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   }
 
+  // Baseline security headers (preserving iframe preview compatibility)
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
+    next();
+  });
+
+  // Authoritative Server UTC Timestamp Endpoint (Single Source of Truth fallback & clock calibration)
+  app.get('/api/time', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    const nowMs = Date.now();
+    return res.json({
+      utcIso: new Date(nowMs).toISOString(),
+      epochMs: nowMs,
+    });
+  });
+
   // Raw body parser for video uploads (up to 300MB)
   app.use('/api/videos/upload', express.raw({ type: '*/*', limit: '300mb' }));
 
   // Video Upload API
   app.post('/api/videos/upload', (req, res) => {
     try {
-      const filename = (req.headers['x-filename'] as string) || `video_${Date.now()}.mp4`;
-      const videoId = (req.headers['x-video-id'] as string) || `vid_${Date.now()}`;
-      
-      let ext = path.extname(filename);
+      const rawFilename = (req.headers['x-filename'] as string) || `video_${Date.now()}.mp4`;
+      const rawVideoId = (req.headers['x-video-id'] as string) || `vid_${Date.now()}`;
+      const videoId = rawVideoId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 96) || `vid_${Date.now()}`;
+      const filename = path.basename(rawFilename);
+
+      let ext = path.extname(filename).toLowerCase();
       if (!ext) {
-        const contentType = req.headers['content-type'] || '';
-        ext = contentType.includes('webm') ? '.webm' : contentType.includes('mov') ? '.mov' : '.mp4';
+        const contentType = (req.headers['content-type'] || '').toLowerCase();
+        ext = contentType.includes('webm') ? '.webm' : contentType.includes('quicktime') || contentType.includes('mov') ? '.mov' : '.mp4';
+      }
+
+      const ALLOWED_VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.m4v']);
+      if (!ALLOWED_VIDEO_EXTS.has(ext)) {
+        return res.status(400).json({ error: 'Unsupported video format. Allowed: MP4, WebM, MOV, M4V.' });
       }
 
       const safeFilename = `${videoId}${ext}`;
@@ -267,11 +294,58 @@ async function startServer() {
         middlewareMode: true,
         host: '0.0.0.0',
         allowedHosts: true,
-        hmr: process.env.DISABLE_HMR !== 'true',
-        watch: process.env.DISABLE_HMR === 'true' ? null : {}
+        hmr: false,
+        ws: false,
+        watch: process.env.DISABLE_HMR === 'true' ? null : undefined
       },
       appType: 'spa',
     });
+
+    // Serve WebSocket-free @vite/client shim when HMR/WS is disabled in preview environments
+    app.get('/@vite/client', (_req, res) => {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.send(`
+const sheetsMap = new Map();
+export function updateStyle(id, content) {
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute('type', 'text/css');
+    style.setAttribute('data-vite-dev-id', id);
+    style.textContent = content;
+    document.head.appendChild(style);
+    sheetsMap.set(id, style);
+  } else {
+    style.textContent = content;
+  }
+}
+export function removeStyle(id) {
+  const style = sheetsMap.get(id);
+  if (style) {
+    document.head.removeChild(style);
+    sheetsMap.delete(id);
+  }
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    decline() {},
+    invalidate() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url) { return url; }
+export class ErrorOverlay {}
+`);
+    });
+
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.resolve(__dirname, 'dist')));

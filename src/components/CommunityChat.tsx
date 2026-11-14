@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Send, 
   Lock, 
@@ -11,12 +11,21 @@ import {
   Pin, 
   AlertTriangle,
   X,
-  CheckCircle2
+  CheckCircle2,
+  Clock,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CommunityMessage, CommunitySettings } from '../types';
 import { RecipeService } from '../services/recipeService';
 import { UserAvatar } from './UserAvatar';
+import {
+  formatMessageTimeLocal,
+  formatMessageFullTooltip,
+  getLocalCalendarDayKey,
+  getDateSeparatorLabel,
+  syncServerClock,
+} from '../lib/chatTimestamp';
 
 interface CommunityChatProps {
   chefId: string;
@@ -44,6 +53,7 @@ export const CommunityChat: React.FC<CommunityChatProps> = ({
   const isAuthorized = isChefThemself || isSubscribed || (settings?.isPublicGroup ?? false);
 
   useEffect(() => {
+    syncServerClock();
     RecipeService.getCommunitySettings(chefId).then((data) => {
       if (data) setSettings(data);
     });
@@ -59,6 +69,25 @@ export const CommunityChat: React.FC<CommunityChatProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Group chronologically ordered messages by synchronized local calendar day
+  const messageDayGroups = useMemo(() => {
+    const groups: { dayKey: string; label: string; items: CommunityMessage[] }[] = [];
+    for (const msg of messages) {
+      const dayKey = getLocalCalendarDayKey(msg.createdAt);
+      const lastGroup = groups[groups.length - 1];
+      if (!lastGroup || lastGroup.dayKey !== dayKey) {
+        groups.push({
+          dayKey,
+          label: getDateSeparatorLabel(msg.createdAt),
+          items: [msg],
+        });
+      } else {
+        lastGroup.items.push(msg);
+      }
+    }
+    return groups;
   }, [messages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -142,27 +171,27 @@ export const CommunityChat: React.FC<CommunityChatProps> = ({
   }
 
   return (
-    <div className="bg-white rounded-3xl border border-stone-200/80 overflow-hidden shadow-xs flex flex-col h-[560px] relative">
+    <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200/80 dark:border-stone-800 overflow-hidden shadow-xs flex flex-col h-[480px] sm:h-[540px] lg:h-[580px] relative">
       {/* Chat Header */}
-      <div className="p-4 sm:px-6 bg-stone-900 text-white flex items-center justify-between border-b border-stone-800 shrink-0">
-        <div className="flex items-center gap-2.5">
+      <div className="p-3.5 sm:px-6 bg-stone-900 text-white flex items-center justify-between gap-2 border-b border-stone-800 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0">
             <MessageSquare className="w-4 h-4" />
           </div>
-          <div>
-            <h4 className="font-serif-display text-sm font-bold text-white flex items-center gap-1.5">
-              <span>{chefName}&apos;s Community Circle</span>
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider">
+          <div className="min-w-0">
+            <h4 className="font-serif-display text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
+              <span className="truncate">{chefName}&apos;s Community Circle</span>
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 font-semibold px-2 py-0.5 rounded-md uppercase tracking-wider shrink-0">
                 {settings?.isPublicGroup ? 'Open Community' : 'VIP Circle'}
               </span>
             </h4>
-            <p className="text-[11px] text-stone-400 truncate max-w-[240px] sm:max-w-none">
-              Direct discussions with {chefName} & fellow cooking enthusiasts
+            <p className="text-[11px] text-stone-400 truncate">
+              Direct discussions with {chefName} &amp; fellow cooking enthusiasts
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2.5 py-1 rounded-full shrink-0">
+        <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2.5 py-1 rounded-lg shrink-0">
           <ShieldCheck className="w-3.5 h-3.5" />
           <span>{isChefThemself ? 'Moderator' : 'Member'}</span>
         </div>
@@ -170,93 +199,152 @@ export const CommunityChat: React.FC<CommunityChatProps> = ({
 
       {/* Pinned Announcement */}
       {settings?.pinnedAnnouncement && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-start gap-2 text-xs text-amber-900 shrink-0">
+        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 px-4 py-2.5 flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200 shrink-0">
           <Pin className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <span className="font-bold text-[11px] uppercase tracking-wider text-amber-800 block">Chef Announcement</span>
-            <p className="text-xs text-stone-800 leading-snug">{settings.pinnedAnnouncement}</p>
+            <span className="font-bold text-[11px] uppercase tracking-wider text-amber-800 dark:text-amber-300 block">
+              Chef Announcement
+            </span>
+            <p className="text-xs text-stone-800 dark:text-stone-200 leading-snug">
+              {settings.pinnedAnnouncement}
+            </p>
           </div>
         </div>
       )}
 
       {/* Message List */}
-      <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4 bg-stone-50/50">
+      <div className="flex-1 px-3.5 py-4 sm:p-6 overflow-y-auto space-y-5 bg-stone-50/60 dark:bg-stone-950/40">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-stone-400">
             <Crown className="w-10 h-10 text-amber-500/60 mb-2" />
-            <p className="font-serif-display text-sm font-bold text-stone-700">Community Discussion Room</p>
+            <p className="font-serif-display text-sm font-bold text-stone-700 dark:text-stone-200">
+              Community Discussion Room
+            </p>
             <p className="text-xs text-stone-500 max-w-xs mt-1">
               Be the first to say hello to {chefName} or ask a cooking question!
             </p>
           </div>
         ) : (
-          messages.map((msg) => {
-            const isMe = msg.senderId === currentUser?.uid;
-            const isChef = msg.senderRole === 'chef';
+          messageDayGroups.map((group) => (
+            <div key={group.dayKey} className="space-y-3.5">
+              {/* Synchronized Date Separator */}
+              <div className="flex items-center gap-3 py-1 select-none" role="separator" aria-label={group.label}>
+                <div className="flex-1 h-px bg-stone-200/90 dark:bg-stone-800" />
+                <span className="px-3 py-1 rounded-lg bg-[#FAF7F2] dark:bg-stone-800 border border-stone-200/90 dark:border-stone-700 text-[11px] font-semibold tracking-wide text-stone-600 dark:text-stone-300 shadow-2xs whitespace-nowrap">
+                  {group.label}
+                </span>
+                <div className="flex-1 h-px bg-stone-200/90 dark:bg-stone-800" />
+              </div>
 
-            return (
-              <div 
-                key={msg.id}
-                className={`flex gap-2.5 max-w-[85%] group ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
-              >
-                <UserAvatar
-                  src={msg.senderPhoto}
-                  seed={msg.senderId || msg.senderName}
-                  name={msg.senderName}
-                  size="xs"
-                  className="mt-1 shrink-0"
-                  ring={false}
-                />
+              {group.items.map((msg) => {
+                const isMe = msg.senderId === currentUser?.uid;
+                const isChefMsg = msg.senderRole === 'chef';
+                const formattedTime = msg.isPendingTimestamp
+                  ? 'Sending…'
+                  : formatMessageTimeLocal(msg.createdAt);
+                const fullTooltip = formatMessageFullTooltip(msg.createdAt);
 
-                <div className={`space-y-1 ${isMe ? 'text-right' : 'text-left'}`}>
-                  <div className={`flex items-center gap-1.5 text-[11px] text-stone-500 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    <span className="font-semibold text-stone-800">{msg.senderName}</span>
-                    {isChef && (
-                      <span className="bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.2 rounded uppercase">
-                        Chef
-                      </span>
-                    )}
-                    <span>·</span>
-                    <span>
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex items-start gap-2.5 sm:gap-3 w-full group ${
+                      isMe ? 'flex-row-reverse' : 'flex-row'
+                    }`}
+                  >
+                    <UserAvatar
+                      src={msg.senderPhoto}
+                      seed={msg.senderId || msg.senderName}
+                      name={msg.senderName}
+                      size="xs"
+                      className="mt-0.5 shrink-0"
+                      ring={false}
+                    />
 
-                    {/* Moderation Actions */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-1">
-                      {isChefThemself && (
-                        <button
-                          onClick={() => handleDeleteMessage(msg.id)}
-                          className="p-1 hover:text-red-600 rounded"
-                          title="Delete message as Chef"
-                        >
-                          <Trash2 className="w-3 h-3 text-stone-400 hover:text-red-600" />
-                        </button>
-                      )}
-                      {!isMe && (
-                        <button
-                          onClick={() => setReportingMsgId(msg.id)}
-                          className="p-1 hover:text-amber-700 rounded"
-                          title="Report message"
-                        >
-                          <Flag className="w-3 h-3 text-stone-400 hover:text-amber-700" />
-                        </button>
-                      )}
+                    <div
+                      className={`flex flex-col min-w-0 max-w-[82%] sm:max-w-[74%] ${
+                        isMe ? 'items-end' : 'items-start'
+                      }`}
+                    >
+                      {/* Sender Metadata + Moderation Controls */}
+                      <div
+                        className={`flex items-center gap-1.5 mb-1 max-w-full ${
+                          isMe ? 'flex-row-reverse' : 'flex-row'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold text-stone-800 dark:text-stone-200 truncate max-w-[160px] sm:max-w-[240px]">
+                          {isMe ? 'You' : msg.senderName}
+                        </span>
+                        {isChefMsg && (
+                          <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase shrink-0">
+                            <ChefHat className="w-2.5 h-2.5" />
+                            <span>Chef</span>
+                          </span>
+                        )}
+
+                        {/* Moderation Actions (cleanly separated from timestamp below) */}
+                        {(isChefThemself || !isMe) && (
+                          <div className="flex items-center gap-0.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                            {isChefThemself && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMessage(msg.id)}
+                                className="p-1 text-stone-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                title="Delete message as Chef"
+                                aria-label="Delete message"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                            {!isMe && (
+                              <button
+                                type="button"
+                                onClick={() => setReportingMsgId(msg.id)}
+                                className="p-1 text-stone-400 hover:text-amber-700 rounded transition-colors cursor-pointer"
+                                title="Report message"
+                                aria-label="Report message"
+                              >
+                                <Flag className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Message Bubble */}
+                      <div
+                        className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-[13px] leading-relaxed break-words max-w-full ${
+                          isMe
+                            ? 'bg-amber-600 text-white rounded-tr-xs shadow-xs'
+                            : isChefMsg
+                            ? 'bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 text-stone-900 dark:text-stone-100 rounded-tl-xs shadow-2xs'
+                            : 'bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-800 dark:text-stone-100 rounded-tl-xs shadow-2xs'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+
+                      {/* Dedicated Timestamp Directly Beneath Message Bubble */}
+                      <div
+                        title={fullTooltip}
+                        className={`mt-1 flex items-center gap-1 text-[10px] sm:text-[11px] text-stone-500 dark:text-stone-400 tabular-nums select-none ${
+                          isMe ? 'justify-end pr-0.5' : 'justify-start pl-0.5'
+                        }`}
+                      >
+                        <time dateTime={msg.createdAt}>{formattedTime}</time>
+                        {isMe && (
+                          msg.isPendingTimestamp ? (
+                            <Clock className="w-2.5 h-2.5 text-stone-400 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                          )
+                        )}
+                      </div>
                     </div>
                   </div>
-
-                  <div className={`p-3 rounded-2xl text-xs leading-relaxed ${
-                    isMe
-                      ? 'bg-amber-600 text-white rounded-tr-xs'
-                      : isChef
-                      ? 'bg-amber-50 border border-amber-200 text-stone-900 rounded-tl-xs'
-                      : 'bg-white border border-stone-200 text-stone-800 rounded-tl-xs shadow-2xs'
-                  }`}>
-                    {msg.text}
-                  </div>
-                </div>
-              </div>
-            );
-          })
+                );
+              })}
+            </div>
+          ))
         )}
         <div ref={messagesEndRef} />
       </div>

@@ -40,7 +40,8 @@ import {
   Sparkles,
   Layers,
   ArrowRight,
-  Timer
+  Timer,
+  Flag
 } from 'lucide-react';
 import { CookingVideo, VideoComment, Recipe, ShoppingListItem } from '../types';
 import { UserAvatar } from './UserAvatar';
@@ -52,6 +53,7 @@ import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
 import { ShoppingService } from '../services/shoppingService';
 import { combineIngredients } from '../lib/ingredientUtils';
 import { ShareModal, ShareItem } from './ShareModal';
+import { ReportTarget } from './ReportContentModal';
 import { useVideoDiagnostics } from '../hooks/useVideoDiagnostics';
 import { recordWatchedVideoOffline } from '../lib/offlineVideoCache';
 import { CookingTimer } from './CookingTimer';
@@ -68,6 +70,7 @@ export interface VideoPlayerModalProps {
   recipes?: Recipe[];
   videos?: CookingVideo[];
   onSelectVideo?: (video: CookingVideo) => void;
+  onReportContent?: (target: ReportTarget) => void;
 }
 
 export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = (props) => {
@@ -86,6 +89,7 @@ interface VideoPlayerModalContentProps {
   recipes?: Recipe[];
   videos?: CookingVideo[];
   onSelectVideo?: (video: CookingVideo) => void;
+  onReportContent?: (target: ReportTarget) => void;
 }
 
 const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({ 
@@ -98,7 +102,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   onNavigateToShopping,
   recipes = [],
   videos = [],
-  onSelectVideo
+  onSelectVideo,
+  onReportContent
 }) => {
   const { 
     currentUser, 
@@ -107,7 +112,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     isVideoBookmarked, 
     toggleVideoBookmark, 
     setPendingAction,
-    favourites 
+    favourites,
+    blockedUserIds
   } = useAuth();
 
   // Video Element Ref & Playback state
@@ -1445,6 +1451,26 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                     <Bookmark className={`w-4 h-4 ${bookmarked ? 'fill-white' : ''}`} />
                     <span>{bookmarked ? 'Saved' : 'Save'}</span>
                   </button>
+
+                  {onReportContent && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onReportContent({
+                          targetType: 'video',
+                          targetId: video.id,
+                          targetTitle: video.title,
+                          targetAuthorId: video.authorId,
+                          targetAuthorName: video.authorName,
+                        })
+                      }
+                      className="p-2 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                      title="Report video or copyright issue"
+                      aria-label="Report video"
+                    >
+                      <Flag className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1848,20 +1874,43 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                   </button>
                 </form>
 
-                {/* Comments List */}
+                {/* Comments List (Filtered cleanly for blocked users) */}
                 <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                  {comments.length === 0 ? (
+                  {comments.filter((c) => !blockedUserIds.includes(c.userId)).length === 0 ? (
                     <p className="text-xs text-stone-500 py-6 text-center">
                       No kitchen notes yet. Be the first to ask a question or leave a tip!
                     </p>
                   ) : (
-                    comments.map((comment) => (
+                    comments
+                      .filter((c) => !blockedUserIds.includes(c.userId))
+                      .map((comment) => (
                       <div key={comment.id} className="p-3 rounded-xl bg-stone-900 border border-stone-800 text-xs space-y-1">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <span className="font-bold text-white">{comment.userName}</span>
-                          <span className="text-[10px] text-stone-500">
-                            {new Date(comment.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-stone-500">
+                              {new Date(comment.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
+                            {onReportContent && comment.userId !== currentUser?.uid && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onReportContent({
+                                    targetType: 'video_comment',
+                                    targetId: comment.id,
+                                    targetTitle: `Comment by ${comment.userName}: "${comment.content.slice(0, 60)}"`,
+                                    targetAuthorId: comment.userId,
+                                    targetAuthorName: comment.userName,
+                                  })
+                                }
+                                className="text-stone-500 hover:text-red-400 transition-colors cursor-pointer"
+                                title="Report or block comment author"
+                                aria-label="Report comment"
+                              >
+                                <Flag className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <p className="text-stone-300 leading-relaxed">{comment.content}</p>
                       </div>

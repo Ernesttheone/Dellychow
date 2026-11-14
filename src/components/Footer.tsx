@@ -97,25 +97,105 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenSupportModal }
           {/* Support & Standards */}
           <div className="space-y-3">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
-              Help & Standards
+              Legal Centre &amp; Help
             </h4>
-            <p className="text-xs text-stone-400 leading-relaxed">
-              Every recipe on DellyChow is crafted by real creators with tested preparation steps, authentic ingredient measurements, and kitchen-tested cooking times.
-            </p>
+            <ul className="space-y-1.5 text-xs">
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('legal')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer font-semibold text-amber-400"
+                >
+                  DellyChow Legal Centre
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('terms')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Terms and Conditions
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('privacy')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('guidelines')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Community Guidelines
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('copyright')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Copyright &amp; IP Policy
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('food-safety')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Food Safety &amp; Recipe Disclaimer
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('cookies')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Cookie Policy
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('reporting')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Content Reporting &amp; Appeals
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('contact')}
+                  className="hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  Contact &amp; Legal Support
+                </button>
+              </li>
+            </ul>
             {onOpenSupportModal && (
-              <div>
+              <div className="pt-1">
                 <button
                   type="button"
                   onClick={onOpenSupportModal}
-                  className="px-3.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 text-xs font-semibold transition-colors"
+                  className="px-3.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  Contact Support & Read FAQ
+                  Contact Support &amp; Read FAQ
                 </button>
               </div>
             )}
             <div className="flex items-center gap-2 pt-1 text-xs text-stone-400">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Verified Chef Profiles & Safe Memberships</span>
+              <span>Verified Chef Profiles &amp; Safe Memberships</span>
             </div>
           </div>
         </div>
@@ -123,10 +203,47 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenSupportModal }
 
         <div className="mt-12 pt-6 border-t border-stone-800 flex flex-col sm:flex-row items-center justify-between text-xs text-stone-500 gap-4">
           <p>© {new Date().getFullYear()} DellyChow. Connecting chefs and food lovers worldwide.</p>
-          <div className="flex items-center gap-1">
-            <span>Crafted with</span>
-            <Heart className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            <span>for culinary lovers everywhere</span>
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={() => onNavigate('legal')}
+              className="hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              Legal Centre
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('terms')}
+              className="hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              Terms
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('privacy')}
+              className="hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              Privacy
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('guidelines')}
+              className="hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              Guidelines
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('cookies')}
+              className="hover:text-amber-400 transition-colors cursor-pointer"
+            >
+              Cookies
+            </button>
+            <div className="flex items-center gap-1">
+              <span>Crafted with</span>
+              <Heart className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              <span>for culinary lovers everywhere</span>
+            </div>
           </div>
         </div>
       </div>

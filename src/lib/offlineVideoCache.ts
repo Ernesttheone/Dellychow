@@ -38,6 +38,13 @@ export function useOnlineStatus(): boolean {
  */
 export async function recordWatchedVideoOffline(video: CookingVideo): Promise<void> {
   if (!video || !video.id) return;
+  try {
+    const rawPref = localStorage.getItem('dellychow_cookie_preferences');
+    if (rawPref) {
+      const parsed = JSON.parse(rawPref);
+      if (parsed.functionalStorage === false) return;
+    }
+  } catch {}
 
   try {
     // 1. Cache metadata in Browser Cache API

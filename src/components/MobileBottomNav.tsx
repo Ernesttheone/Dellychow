@@ -118,7 +118,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 key={item.id}
                 type="button"
                 onClick={item.onClick}
-                className="flex flex-col items-center justify-center py-1 transition-colors relative group focus:outline-none"
+                className="flex flex-col items-center justify-center min-h-[44px] py-1 transition-colors relative group focus:outline-none cursor-pointer"
                 aria-current={isActive ? 'page' : undefined}
               >
                 {item.isAvatar && currentUser ? (
@@ -175,13 +175,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <h3 className="font-serif-display text-base font-bold text-stone-900">
-                  DellyChow Creator Studio
+                  DellyChow Kitchen Studio
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setCreateSheetOpen(false)}
-                className="p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100"
+                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100"
                 aria-label="Close"
               >
                 <X className="w-5 h-5" />
@@ -197,7 +197,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   if (isChef) {
                     onNavigate('chef-upload-video');
                   } else {
-                    onNavigate('challenges');
+                    onNavigate('videos');
                   }
                 }}
                 className="w-full p-3.5 rounded-2xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/70 flex items-center gap-3.5 text-left transition-all active:scale-98"
@@ -207,11 +207,15 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm text-stone-900 flex items-center gap-1.5">
-                    <span>Upload Cooking Video</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white font-semibold">Studio</span>
+                    <span>{isChef ? 'Upload / Record Video' : 'Watch Cooking Videos'}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white font-semibold">
+                      {isChef ? 'Studio' : 'Feed'}
+                    </span>
                   </div>
                   <p className="text-xs text-stone-600 mt-0.5">
-                    Publish an authentic video tutorial or knife masterclass
+                    {isChef
+                      ? 'Record live or publish a step-by-step culinary tutorial'
+                      : 'Browse chef video tutorials and culinary masterclasses'}
                   </p>
                 </div>
               </button>
@@ -243,22 +247,31 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 </div>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateSheetOpen(false);
-                  onNavigate('challenges');
-                }}
-                className="w-full p-3 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-left transition-colors"
-              >
-                <div className="w-9 h-9 rounded-lg bg-stone-100 text-stone-700 flex items-center justify-center shrink-0">
-                  <Trophy className="w-4 h-4 text-amber-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-xs text-stone-800">Join Cooking Challenge</div>
-                  <p className="text-[11px] text-stone-500">Showcase your dish and win culinary community badges</p>
-                </div>
-              </button>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    onNavigate('challenges');
+                  }}
+                  className="p-3 min-h-[44px] rounded-xl bg-stone-50 hover:bg-stone-100 flex items-center gap-2.5 text-left transition-colors"
+                >
+                  <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold text-xs text-stone-800 truncate">Challenges</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    onNavigate('shopping-lists');
+                  }}
+                  className="p-3 min-h-[44px] rounded-xl bg-stone-50 hover:bg-stone-100 flex items-center gap-2.5 text-left transition-colors"
+                >
+                  <ShoppingCart className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold text-xs text-stone-800 truncate">Shopping Lists</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

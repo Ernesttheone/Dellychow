@@ -94,7 +94,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* ======================================================== */}
       <div className="block md:hidden">
         {/* Horizontally scrollable category filter chips (YouTube style) */}
-        <div className="sticky top-16 z-30 bg-[#FAF7F2]/95 backdrop-blur-md px-3 py-2 border-b border-stone-200/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar shadow-2xs">
+        <div className="sticky top-14 z-30 bg-[#FAF7F2]/95 dark:bg-[#141210]/95 backdrop-blur-md px-3 py-2 border-b border-stone-200/80 dark:border-stone-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar shadow-2xs">
           {mobilePills.map((pill) => (
             <button
               key={pill.id}

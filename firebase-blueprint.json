@@ -199,6 +199,62 @@
         "status": { "type": "string", "description": "Status of ticket." }
       },
       "required": ["subject", "message", "status"]
+    },
+    "LegalAcceptanceRecord": {
+      "title": "LegalAcceptanceRecord",
+      "description": "Immutable backend log of user policy acceptance.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "termsVersion": { "type": "string" },
+        "privacyPolicyVersion": { "type": "string" },
+        "communityGuidelinesVersion": { "type": "string" },
+        "acceptedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["accepted", "declined"] },
+        "registrationMethod": { "type": "string" }
+      },
+      "required": ["userId", "termsVersion", "privacyPolicyVersion", "status", "registrationMethod"]
+    },
+    "CopyrightClaim": {
+      "title": "CopyrightClaim",
+      "description": "Copyright takedown or creator impersonation claim.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "claimantUserId": { "type": "string" },
+        "violationType": { "type": "string" },
+        "reportedTargetId": { "type": "string" },
+        "originalWorkDescription": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["claimantUserId", "violationType", "originalWorkDescription", "status"]
+    },
+    "ModerationReport": {
+      "title": "ModerationReport",
+      "description": "Private user report for videos, recipes, comments, profiles, or links.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "targetType": { "type": "string" },
+        "targetId": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["reporterId", "targetType", "targetId", "reason", "status"]
+    },
+    "PrivacyRequest": {
+      "title": "PrivacyRequest",
+      "description": "Account deletion or NDPA data rights request.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "requestType": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "requestType", "status"]
     }
   },
   "firestore": {
@@ -265,6 +321,38 @@
     "/community_reports/{reportId}": {
       "schema": "CommunityMessage",
       "description": "Reports on flagged messages."
+    },
+    "/legal_acceptances/{acceptanceId}": {
+      "schema": "LegalAcceptanceRecord",
+      "description": "Immutable records of user legal and privacy policy acceptance."
+    },
+    "/copyright_claims/{claimId}": {
+      "schema": "CopyrightClaim",
+      "description": "Copyright and creator impersonation claims."
+    },
+    "/moderation_reports/{reportId}": {
+      "schema": "ModerationReport",
+      "description": "Private safety and content moderation reports."
+    },
+    "/moderation_appeals/{appealId}": {
+      "schema": "ModerationReport",
+      "description": "User appeals on moderation or content actions."
+    },
+    "/blocked_users/{blockId}": {
+      "schema": "UserProfile",
+      "description": "Private per-user block relationships."
+    },
+    "/privacy_requests/{requestId}": {
+      "schema": "PrivacyRequest",
+      "description": "Account deletion and data protection requests."
+    },
+    "/moderation_audit_logs/{logId}": {
+      "schema": "ModerationReport",
+      "description": "Immutable audit logs for administrative governance actions."
+    },
+    "/policy_metadata/{policyId}": {
+      "schema": "LegalAcceptanceRecord",
+      "description": "Published policy versions and effective dates."
     }
   }
 }

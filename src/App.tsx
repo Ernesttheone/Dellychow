@@ -38,19 +38,72 @@ import { MobileSearchOverlay } from './components/MobileSearchOverlay';
 import { ThemeProvider } from './context/ThemeContext';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { recordWatchedVideoOffline, getWatchedVideosOffline } from './lib/offlineVideoCache';
+import { DeliChowSplashLoader } from './components/DeliChowSplashLoader';
+import { DesktopSidebar } from './components/DesktopSidebar';
+import { TermsAndConditionsPage, PrefillCopyrightTarget } from './pages/TermsAndConditionsPage';
+import { AdminGovernancePage } from './pages/AdminGovernancePage';
+import { LegalAcceptanceModal } from './components/LegalAcceptanceModal';
+import { ReportContentModal, ReportTarget } from './components/ReportContentModal';
+import { hasAcceptedLatestLegal, CURRENT_TERMS_VERSION } from './data/legalDocuments';
+import { LegalPolicyKey } from './types';
+import { isAuthorizedAdminUser } from './lib/admin';
+
+const LEGAL_VIEWS: LegalPolicyKey[] = [
+  'legal',
+  'terms',
+  'privacy',
+  'guidelines',
+  'copyright',
+  'food-safety',
+  'cookies',
+  'reporting',
+  'contact',
+];
 
 function AppContent() {
   const { 
     currentUser, 
-    userProfile, 
+    userProfile,
+    loading: authLoading,
     pendingToast, 
     activeWatchVideo, 
     setActiveWatchVideo, 
-    setPendingAction 
+    setPendingAction,
+    acceptLatestLegalTerms,
+    declineUpdatedLegalTerms,
+    signOut,
   } = useAuth();
 
   const [currentView, setCurrentView] = useState<string>('home');
+  const [legalPromptDismissed, setLegalPromptDismissed] = useState<boolean>(false);
+  const [legalUpdateModalOpen, setLegalUpdateModalOpen] = useState<boolean>(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [prefillCopyright, setPrefillCopyright] = useState<PrefillCopyrightTarget | null>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dellychow_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [tabletDrawerOpen, setTabletDrawerOpen] = useState(false);
+
+  const handleToggleSidebar = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setTabletDrawerOpen((prev) => !prev);
+    } else {
+      setSidebarCollapsed((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('dellychow_sidebar_collapsed', String(next));
+        } catch {
+          // ignore storage failure
+        }
+        return next;
+      });
+    }
+  };
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedChefId, setSelectedChefId] = useState<string>('chef-david-chen');
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
@@ -192,11 +245,33 @@ function AppContent() {
             }).catch(() => {});
           }
         }
+        // 6. Direct Legal Centre / Policy link (?legal=legal|terms|privacy|guidelines|copyright|food-safety|cookies|reporting|contact)
+        const legalParam = params.get('legal') as LegalPolicyKey | null;
+        if (legalParam && LEGAL_VIEWS.includes(legalParam)) {
+          setCurrentView(legalParam);
+        }
       }
     } catch (e) {
       console.warn("Could not parse query parameters:", e);
     }
   }, [videos, recipes]);
+
+  // Non-disruptive prompt for existing signed-in users whose profile lacks current legal acceptance
+  useEffect(() => {
+    if (!authLoading && currentUser && userProfile) {
+      if (!hasAcceptedLatestLegal(userProfile) && !legalPromptDismissed && !authModal.isOpen) {
+        if (!LEGAL_VIEWS.includes(currentView as LegalPolicyKey)) {
+          setLegalUpdateModalOpen(true);
+        } else {
+          setLegalUpdateModalOpen(false);
+        }
+      } else if (hasAcceptedLatestLegal(userProfile)) {
+        setLegalUpdateModalOpen(false);
+      }
+    } else {
+      setLegalUpdateModalOpen(false);
+    }
+  }, [authLoading, currentUser, userProfile, legalPromptDismissed, authModal.isOpen, currentView]);
 
   // Watch video auto-redirect after guest registers/logs in
   useEffect(() => {
@@ -241,9 +316,8 @@ function AppContent() {
       // Only attempt to persist synced URL to Firestore if current user is author or admin
       if (currentUser) {
         const uid = currentUser.uid;
-        const email = currentUser.email;
         const isAuthorized = (v: CookingVideo) =>
-          v.authorId === uid || email === 'ceganigabriel@gmail.com';
+          v.authorId === uid || isAuthorizedAdminUser(currentUser);
 
         const videosToSync = loadedVideos.filter(v => 
           v.videoUrl && v.videoUrl.startsWith('dellychow-video://') && isAuthorized(v)
@@ -364,14 +438,26 @@ function AppContent() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col bg-[#FAF7F2] text-stone-900 font-sans selection:bg-amber-500 selection:text-white">
-      
-      {/* Top Navbar */}
+      {/* Custom Brand Logo Reveal & Utensil-Joining Loading Screen */}
+      <DeliChowSplashLoader isLoading={loadingContent} />
+
+      {/* Top Navbar (YouTube-Style Mobile & Desktop Header) */}
       <Navbar 
         currentView={currentView}
         onNavigate={handleNavigate}
         onOpenAuthModal={handleOpenAuthModal}
         onOpenSupportModal={() => setSupportModalOpen(true)}
         onOpenSearch={() => setMobileSearchOpen(true)}
+        onToggleSidebar={handleToggleSidebar}
+        sidebarCollapsed={sidebarCollapsed}
+        videos={videos}
+        recipes={publicRecipes}
+        onPlayVideo={(video) => {
+          setActiveVideoModal(video);
+          recordWatchedVideoOffline(video);
+        }}
+        onSelectRecipe={handleSelectRecipe}
+        onSelectChef={handleSelectChef}
       />
 
       {/* Notification banner if starter content seeded */}
@@ -381,16 +467,49 @@ function AppContent() {
         </div>
       )}
 
+      {/* Non-blocking Terms Update Reminder Bar (when dismissed for later) */}
+      {currentUser &&
+        userProfile &&
+        !hasAcceptedLatestLegal(userProfile) &&
+        legalPromptDismissed &&
+        !LEGAL_VIEWS.includes(currentView as LegalPolicyKey) && (
+          <div className="bg-amber-50 dark:bg-amber-950/60 border-b border-amber-200 dark:border-amber-800/70 px-4 py-2 text-xs text-stone-800 dark:text-stone-100 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              DellyChow&apos;s Terms &amp; Conditions and Privacy Policy (v{CURRENT_TERMS_VERSION}) are ready for your review.
+            </span>
+            <button
+              type="button"
+              onClick={() => setLegalUpdateModalOpen(true)}
+              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold transition-colors cursor-pointer"
+            >
+              Review &amp; Accept
+            </button>
+          </div>
+        )}
+
       {/* Action Toast when a pending guest action completes */}
       {pendingToast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-stone-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 border border-stone-700 animate-in fade-in slide-in-from-bottom-2">
+        <div className="fixed bottom-20 md:bottom-6 right-6 z-50 bg-stone-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 border border-stone-700 animate-in fade-in slide-in-from-bottom-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span>{pendingToast}</span>
         </div>
       )}
 
-      {/* Main View Router */}
-      <main className="flex-1 pb-16 md:pb-0">
+      {/* Desktop/Tablet Collapsible Sidebar + Scrollable Content Shell */}
+      <div className="flex flex-1 min-w-0">
+        <DesktopSidebar
+          currentView={currentView}
+          collapsed={sidebarCollapsed}
+          mobileDrawerOpen={tabletDrawerOpen}
+          onCloseMobileDrawer={() => setTabletDrawerOpen(false)}
+          onNavigate={handleNavigate}
+          onOpenAuthModal={handleOpenAuthModal}
+          onOpenSupportModal={() => setSupportModalOpen(true)}
+        />
+
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Main View Router */}
+          <main className="flex-1 pb-16 md:pb-8">
         {currentView === 'home' && (
           <HomePage
             recipes={publicRecipes}
@@ -426,6 +545,7 @@ function AppContent() {
             onRequestSubscribe={handleOpenSubscribe}
             onOpenAuthModal={handleOpenAuthModal}
             onAddToShoppingList={handleAddToShoppingList}
+            onReportContent={(target) => setReportTarget(target)}
           />
         )}
 
@@ -481,6 +601,7 @@ function AppContent() {
             onPlayVideo={(video) => setActiveVideoModal(video)}
             onRequestSubscribe={handleOpenSubscribe}
             onOpenAuthModal={handleOpenAuthModal}
+            onReportContent={(target) => setReportTarget(target)}
           />
         )}
 
@@ -510,6 +631,7 @@ function AppContent() {
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
             viewUserId={selectedUserId}
+            onReportContent={(target) => setReportTarget(target)}
           />
         )}
 
@@ -562,7 +684,38 @@ function AppContent() {
             onBack={() => setCurrentView('chef-dashboard')}
           />
         )}
-      </main>
+
+        {LEGAL_VIEWS.includes(currentView as LegalPolicyKey) && (
+          <TermsAndConditionsPage
+            initialTab={currentView as LegalPolicyKey}
+            prefillCopyrightTarget={prefillCopyright}
+            onBack={() => setCurrentView('home')}
+            onNavigate={handleNavigate}
+            onOpenSupportModal={() => setSupportModalOpen(true)}
+            onOpenAuthModal={handleOpenAuthModal}
+            onAcceptTerms={async (source) => {
+              await acceptLatestLegalTerms(source);
+            }}
+          />
+        )}
+
+        {currentView === 'admin-governance' && (
+          <AdminGovernancePage
+            onBack={() => setCurrentView('account')}
+            onNavigate={handleNavigate}
+          />
+        )}
+          </main>
+
+          {/* Footer (Hidden on mobile to avoid double navigation, visible on md: screens) */}
+          <div className="hidden md:block">
+            <Footer 
+              onNavigate={handleNavigate} 
+              onOpenSupportModal={() => setSupportModalOpen(true)}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Mobile Fixed Bottom Navigation Bar (YouTube Style) */}
       <MobileBottomNav
@@ -570,14 +723,6 @@ function AppContent() {
         onNavigate={handleNavigate}
         onOpenAuthModal={handleOpenAuthModal}
       />
-
-      {/* Footer (Hidden on mobile to avoid double navigation, visible on md: screens) */}
-      <div className="hidden md:block">
-        <Footer 
-          onNavigate={handleNavigate} 
-          onOpenSupportModal={() => setSupportModalOpen(true)}
-        />
-      </div>
 
       {/* Mobile YouTube-Style Search Overlay */}
       <MobileSearchOverlay
@@ -612,6 +757,7 @@ function AppContent() {
           recipes={publicRecipes}
           videos={videos}
           onSelectVideo={(video) => setActiveVideoModal(video)}
+          onReportContent={(target) => setReportTarget(target)}
         />
       )}
 
@@ -629,6 +775,7 @@ function AppContent() {
         onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
         onLoginSuccess={handleLoginSuccess}
         onOpenForgotPassword={() => setResetModal({ isOpen: true, initialCode: null })}
+        onOpenFullLegal={(tab) => handleNavigate(tab)}
       />
 
       <ResetPasswordModal
@@ -669,6 +816,68 @@ function AppContent() {
         isOpen={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
         item={shareItem}
+      />
+
+      <LegalAcceptanceModal
+        isOpen={legalUpdateModalOpen}
+        mode="update_prompt"
+        initialTab="terms"
+        onClose={() => {
+          setLegalUpdateModalOpen(false);
+          setLegalPromptDismissed(true);
+        }}
+        onOpenFullPage={(tab) => {
+          setLegalUpdateModalOpen(false);
+          setLegalPromptDismissed(true);
+          handleNavigate(tab);
+        }}
+        onAcceptLatest={async () => {
+          await acceptLatestLegalTerms('update_prompt', 'existing_user_update');
+          setLegalUpdateModalOpen(false);
+        }}
+        onDeclineLatest={async () => {
+          await declineUpdatedLegalTerms();
+          setLegalUpdateModalOpen(false);
+          setLegalPromptDismissed(true);
+        }}
+        onSignOutDeclined={async () => {
+          setLegalUpdateModalOpen(false);
+          await signOut();
+        }}
+        onOpenAccountPrivacy={() => {
+          setLegalUpdateModalOpen(false);
+          setLegalPromptDismissed(true);
+          handleNavigate('account');
+        }}
+      />
+
+      <ReportContentModal
+        isOpen={reportTarget !== null}
+        target={reportTarget}
+        onClose={() => setReportTarget(null)}
+        onOpenAuthModal={handleOpenAuthModal}
+        onOpenCopyrightClaim={(target) => {
+          setPrefillCopyright({
+            targetType:
+              target.targetType === 'chef_profile'
+                ? 'chef_profile'
+                : target.targetType === 'user_profile'
+                ? 'user_profile'
+                : target.targetType === 'recipe'
+                ? 'recipe'
+                : 'video',
+            targetId: target.targetId,
+            targetTitle: target.targetTitle,
+            targetAuthorId: target.targetAuthorId,
+            reportedUrl: typeof window !== 'undefined' ? window.location.origin : '',
+          });
+          setReportTarget(null);
+          handleNavigate('copyright');
+        }}
+        onViewMyReports={() => {
+          setReportTarget(null);
+          handleNavigate('reporting');
+        }}
       />
 
     </div>

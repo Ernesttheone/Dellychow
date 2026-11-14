@@ -11,13 +11,14 @@ import {
   Eye, 
   EyeOff, 
   ArrowRight,
-  ShieldCheck,
   Copy,
   ExternalLink,
   AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
+import { LegalDocumentTab } from '../data/legalDocuments';
+import { LegalAcceptanceModal } from './LegalAcceptanceModal';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ interface AuthModalProps {
   promptMessage?: string;
   onLoginSuccess?: (role: UserRole) => void;
   onOpenForgotPassword?: () => void;
+  onOpenFullLegal?: (tab: LegalDocumentTab) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -36,7 +38,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialRole = 'user',
   promptMessage,
   onLoginSuccess,
-  onOpenForgotPassword
+  onOpenForgotPassword,
+  onOpenFullLegal
 }) => {
   const { login, createAccount, signInWithGoogle, pendingAction, executePendingAction } = useAuth();
 
@@ -50,6 +53,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [specialty, setSpecialty] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
+  // Age & Child/Teen Protection bracket (signup only)
+  const [ageGroup, setAgeGroup] = useState<'adult_18_plus' | 'teen_13_17'>('adult_18_plus');
+  const [parentalConsentConfirmed, setParentalConsentConfirmed] = useState(false);
+
+  // Explicit legal consent state (never auto-checked)
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [termsError, setTermsError] = useState('');
+  const [legalPreviewTab, setLegalPreviewTab] = useState<LegalDocumentTab | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isExistingEmailError, setIsExistingEmailError] = useState(false);
@@ -60,16 +72,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setMode(initialMode);
     setSelectedRole(initialRole);
     setErrorMsg('');
+    setTermsError('');
+    setAgreedToTerms(false);
+    setParentalConsentConfirmed(false);
+    setAgeGroup('adult_18_plus');
+    setLegalPreviewTab(null);
     setIsExistingEmailError(false);
     setDomainError(null);
   }, [initialMode, initialRole, isOpen]);
 
   if (!isOpen) return null;
 
+  const validateSignupLegalConsent = (): boolean => {
+    if (!agreedToTerms) {
+      setTermsError(
+        "Please read and agree to DellyChow's Terms and Conditions, Privacy Policy and Community Guidelines before creating an account."
+      );
+      return false;
+    }
+    if (ageGroup === 'teen_13_17' && !parentalConsentConfirmed) {
+      setTermsError(
+        'Teen accounts (ages 13–17) require parent or legal guardian consent confirmation before creating an account.'
+      );
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setTermsError('');
     setIsExistingEmailError(false);
+
+    if (mode === 'signup' && !validateSignupLegalConsent()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -84,7 +123,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           password,
           displayName.trim(),
           selectedRole,
-          specialty.trim()
+          specialty.trim(),
+          agreedToTerms,
+          { ageGroup, parentalConsentConfirmed }
         );
         onClose();
         if (pendingAction) {
@@ -160,10 +201,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleGoogleAuth = async () => {
     setErrorMsg('');
+    setTermsError('');
     setDomainError(null);
+
+    if (mode === 'signup' && !validateSignupLegalConsent()) {
+      return;
+    }
+
     setLoading(true);
     try {
-      const profile = await signInWithGoogle(selectedRole);
+      const profile = await signInWithGoogle(
+        selectedRole,
+        mode === 'signup' ? agreedToTerms : false,
+        mode === 'signup' ? { ageGroup, parentalConsentConfirmed } : undefined
+      );
       onClose();
       if (pendingAction) {
         await executePendingAction();
@@ -243,7 +294,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex p-1 bg-stone-100 rounded-xl mt-5">
             <button
               type="button"
-              onClick={() => { setMode('login'); setErrorMsg(''); setIsExistingEmailError(false); setDomainError(null); }}
+              onClick={() => { setMode('login'); setErrorMsg(''); setTermsError(''); setIsExistingEmailError(false); setDomainError(null); }}
               className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'login'
                   ? 'bg-white text-stone-900 shadow-xs'
@@ -254,7 +305,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => { setMode('signup'); setErrorMsg(''); setIsExistingEmailError(false); setDomainError(null); }}
+              onClick={() => { setMode('signup'); setErrorMsg(''); setTermsError(''); setAgreedToTerms(false); setIsExistingEmailError(false); setDomainError(null); }}
               className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'signup'
                   ? 'bg-white text-amber-800 shadow-xs'
@@ -484,7 +535,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </button>
               </div>
 
-              {/* Requirement 1: Visible Forgot Password? link below the password field */}
               {mode === 'login' && (
                 <div className="flex justify-end pt-1">
                   <button
@@ -500,6 +550,184 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Child/Teen Protection & Explicit Policy Acceptance (Required for Sign Up) */}
+            {mode === 'signup' && (
+              <div className="pt-1 space-y-2.5">
+                {/* Age bracket */}
+                <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-stone-700">
+                    <span>Age Verification</span>
+                    <div className="flex items-center gap-1 bg-stone-200/70 p-0.5 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAgeGroup('adult_18_plus');
+                          setTermsError('');
+                        }}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors ${
+                          ageGroup === 'adult_18_plus'
+                            ? 'bg-white text-stone-900 shadow-2xs'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        18+ Adult
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAgeGroup('teen_13_17');
+                          setTermsError('');
+                        }}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors ${
+                          ageGroup === 'teen_13_17'
+                            ? 'bg-white text-amber-800 shadow-2xs'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Teen (13–17)
+                      </button>
+                    </div>
+                  </div>
+
+                  {ageGroup === 'teen_13_17' && (
+                    <label className="flex items-start gap-2 text-[11px] text-stone-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={parentalConsentConfirmed}
+                        onChange={(e) => {
+                          setParentalConsentConfirmed(e.target.checked);
+                          if (e.target.checked) setTermsError('');
+                        }}
+                        className="mt-0.5 h-3.5 w-3.5 rounded border-stone-300 text-amber-600 focus:ring-amber-500 shrink-0 cursor-pointer"
+                      />
+                      <span>
+                        I confirm I am aged 13–17 and have verifiable parent/legal guardian permission (with teen privacy defaults enabled).
+                      </span>
+                    </label>
+                  )}
+                </div>
+
+                {/* Required Sign-Up Notice */}
+                <p className="text-[11px] text-stone-600 leading-relaxed px-0.5">
+                  By creating an account, you acknowledge that you have read and agree to DellyChow&apos;s{' '}
+                  <button
+                    type="button"
+                    onClick={() => setLegalPreviewTab('terms')}
+                    className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                  >
+                    Terms and Conditions
+                  </button>
+                  ,{' '}
+                  <button
+                    type="button"
+                    onClick={() => setLegalPreviewTab('privacy')}
+                    className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                  >
+                    Privacy Policy
+                  </button>{' '}
+                  and{' '}
+                  <button
+                    type="button"
+                    onClick={() => setLegalPreviewTab('guidelines')}
+                    className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                  >
+                    Community Guidelines
+                  </button>
+                  .
+                </p>
+
+                {/* Always-visible unchecked acceptance checkbox */}
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs leading-relaxed cursor-pointer select-none transition-colors ${
+                    termsError
+                      ? 'border-red-300 bg-red-50/70 text-red-900'
+                      : agreedToTerms
+                      ? 'border-amber-500/60 bg-amber-50/50 text-stone-800'
+                      : 'border-stone-200 bg-stone-50/80 text-stone-700 hover:border-stone-300'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={(e) => {
+                      setAgreedToTerms(e.target.checked);
+                      if (e.target.checked) setTermsError('');
+                    }}
+                    aria-required="true"
+                    className="mt-0.5 h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500 shrink-0 cursor-pointer"
+                  />
+                  <span>
+                    I have read and agree to DellyChow&apos;s{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLegalPreviewTab('terms');
+                      }}
+                      className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                    >
+                      Terms and Conditions
+                    </button>
+                    ,{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLegalPreviewTab('privacy');
+                      }}
+                      className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                    >
+                      Privacy Policy
+                    </button>{' '}
+                    and{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLegalPreviewTab('guidelines');
+                      }}
+                      className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                    >
+                      Community Guidelines
+                    </button>
+                    .
+                  </span>
+                </label>
+
+                {termsError && (
+                  <p role="alert" className="text-[11px] font-medium text-red-600 px-1">
+                    {termsError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Sign-In Short Legal Notice */}
+            {mode === 'login' && (
+              <p className="text-[11px] text-stone-500 leading-relaxed text-center px-1">
+                By using DellyChow, you agree to our{' '}
+                <button
+                  type="button"
+                  onClick={() => setLegalPreviewTab('terms')}
+                  className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                >
+                  Terms and Conditions
+                </button>{' '}
+                and acknowledge our{' '}
+                <button
+                  type="button"
+                  onClick={() => setLegalPreviewTab('privacy')}
+                  className="font-semibold text-amber-700 hover:text-amber-800 underline underline-offset-2 cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+                .
+              </p>
+            )}
 
             <button
               type="submit"
@@ -556,7 +784,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 Already have an account?{' '}
                 <button
                   type="button"
-                  onClick={() => { setMode('login'); setErrorMsg(''); }}
+                  onClick={() => { setMode('login'); setErrorMsg(''); setTermsError(''); }}
                   className="text-amber-700 font-semibold hover:underline"
                 >
                   Log In
@@ -567,7 +795,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 Don&apos;t have an account yet?{' '}
                 <button
                   type="button"
-                  onClick={() => { setMode('signup'); setErrorMsg(''); }}
+                  onClick={() => { setMode('signup'); setErrorMsg(''); setTermsError(''); setAgreedToTerms(false); }}
                   className="text-amber-700 font-semibold hover:underline"
                 >
                   Create an Account
@@ -578,6 +806,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         </div>
       </div>
+
+      {/* Inline Policy Preview Modal (Preserves typed signup fields) */}
+      <LegalAcceptanceModal
+        isOpen={legalPreviewTab !== null}
+        mode="preview"
+        initialTab={legalPreviewTab || 'terms'}
+        onClose={() => setLegalPreviewTab(null)}
+        onOpenFullPage={
+          onOpenFullLegal
+            ? (tab) => {
+                setLegalPreviewTab(null);
+                onClose();
+                onOpenFullLegal(tab);
+              }
+            : undefined
+        }
+      />
     </div>
   );
 };

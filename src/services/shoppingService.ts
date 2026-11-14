@@ -1,10 +1,12 @@
 import { 
   collection, 
   doc, 
-  getDocs, 
+  getDoc, 
   setDoc, 
   deleteDoc, 
   updateDoc, 
+  query,
+  where,
   onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -44,10 +46,13 @@ export const ShoppingService = {
       callback(cached);
     }
 
-    // Try listening to Firestore
+    // Query top-level /shopping_lists scoped by userId (matches firestore.rules)
     try {
-      const userListsRef = collection(db, 'users', userId, 'shopping_lists');
-      const unsubscribe = onSnapshot(userListsRef, (snapshot) => {
+      const userListsQuery = query(
+        collection(db, 'shopping_lists'),
+        where('userId', '==', userId)
+      );
+      const unsubscribe = onSnapshot(userListsQuery, (snapshot) => {
         const items: ShoppingList[] = [];
         snapshot.forEach((docSnap) => {
           items.push({ id: docSnap.id, ...(docSnap.data() as Omit<ShoppingList, 'id'>) });
@@ -75,15 +80,15 @@ export const ShoppingService = {
     if (found) return found;
 
     try {
-      const docRef = doc(db, 'users', userId, 'shopping_lists', listId);
-      const snap = await getDocs(collection(db, 'users', userId, 'shopping_lists'));
-      let fetched: ShoppingList | null = null;
-      snap.forEach(d => {
-        if (d.id === listId) {
-          fetched = { id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) };
+      const docRef = doc(db, 'shopping_lists', listId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data() as Omit<ShoppingList, 'id'>;
+        if (data.userId === userId) {
+          return { id: snap.id, ...data };
         }
-      });
-      return fetched;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -117,9 +122,9 @@ export const ShoppingService = {
     }
     setLocalLists(userId, current);
 
-    // Persist to Firestore
+    // Persist to Firestore top-level collection
     try {
-      const docRef = doc(db, 'users', userId, 'shopping_lists', listId);
+      const docRef = doc(db, 'shopping_lists', listId);
       await setDoc(docRef, fullList);
     } catch (err) {
       console.warn('Firestore shopping list save notice, preserved in local storage:', err);
@@ -136,7 +141,7 @@ export const ShoppingService = {
     setLocalLists(userId, remaining);
 
     try {
-      const docRef = doc(db, 'users', userId, 'shopping_lists', listId);
+      const docRef = doc(db, 'shopping_lists', listId);
       await deleteDoc(docRef);
     } catch (err) {
       console.warn('Firestore shopping list delete notice:', err);
@@ -156,7 +161,7 @@ export const ShoppingService = {
     }
 
     try {
-      const docRef = doc(db, 'users', userId, 'shopping_lists', listId);
+      const docRef = doc(db, 'shopping_lists', listId);
       await updateDoc(docRef, {
         items,
         updatedAt: new Date().toISOString()

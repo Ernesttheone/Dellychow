@@ -10,9 +10,16 @@ import {
   where, 
   orderBy, 
   onSnapshot,
-  limit
+  limit,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  getAuthoritativeServerTime,
+  normalizeToUtcIso,
+  parseUtcEpochMs,
+  syncServerClock,
+} from '../lib/chatTimestamp';
 import { 
   Recipe, 
   CookingVideo, 
@@ -242,31 +249,66 @@ export const RecipeService = {
     }
   },
 
-  // Listen to VIP community group chat
+  // Listen to VIP community group chat with real-time database timestamp resolution
   listenToCommunityMessages(chefId: string, callback: (messages: CommunityMessage[]) => void) {
+    syncServerClock();
     const path = `communities/${chefId}/messages`;
     const messagesRef = collection(db, 'communities', chefId, 'messages');
-    return onSnapshot(messagesRef, (snapshot) => {
-      const items: CommunityMessage[] = [];
-      snapshot.forEach((docSnap) => {
-        items.push({ id: docSnap.id, ...(docSnap.data() as Omit<CommunityMessage, 'id'>) });
-      });
-      items.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      callback(items);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
-    });
+    return onSnapshot(
+      messagesRef,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        const items: CommunityMessage[] = [];
+        snapshot.forEach((docSnap) => {
+          const rawData = docSnap.data({ serverTimestamps: 'none' }) as Record<string, any>;
+          const hasCommittedServerTs =
+            rawData.serverTimestamp != null &&
+            (typeof rawData.serverTimestamp?.toDate === 'function' ||
+              typeof rawData.serverTimestamp?.seconds === 'number');
+
+          const canonicalCreatedAt = normalizeToUtcIso(
+            hasCommittedServerTs ? rawData.serverTimestamp : null,
+            rawData.createdAt
+          );
+
+          items.push({
+            id: docSnap.id,
+            chefId: rawData.chefId || chefId,
+            senderId: rawData.senderId || '',
+            senderName: rawData.senderName || 'Member',
+            senderPhoto: rawData.senderPhoto || '',
+            senderRole: rawData.senderRole || 'member',
+            text: rawData.text || '',
+            createdAt: canonicalCreatedAt,
+            serverTimestamp: rawData.serverTimestamp,
+            isPendingTimestamp: Boolean(docSnap.metadata.hasPendingWrites && !hasCommittedServerTs),
+          });
+        });
+
+        items.sort((a, b) => {
+          const diff = parseUtcEpochMs(a.createdAt) - parseUtcEpochMs(b.createdAt);
+          if (diff !== 0) return diff;
+          return a.id.localeCompare(b.id);
+        });
+        callback(items);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
+    );
   },
 
-  // Send VIP message
+  // Send VIP message using authoritative database serverTimestamp + server UTC ISO 8601
   async sendCommunityMessage(chefId: string, message: Omit<CommunityMessage, 'id' | 'createdAt'>): Promise<void> {
     const path = `communities/${chefId}/messages`;
     const newDocRef = doc(collection(db, 'communities', chefId, 'messages'));
     try {
-      await setDoc(newDocRef, {
+      const { utcIso } = await getAuthoritativeServerTime();
+      await setDoc(newDocRef, cleanUndefined({
         ...message,
-        createdAt: new Date().toISOString()
-      });
+        createdAt: utcIso,
+        serverTimestamp: serverTimestamp(),
+      }));
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, path);
     }
@@ -405,32 +447,66 @@ export const RecipeService = {
     });
   },
 
-  // Listen to live support chat messages
+  // Listen to live support chat messages with database timestamp resolution
   listenToLiveSupportMessages(chatId: string, callback: (msgs: LiveSupportMessage[]) => void) {
+    syncServerClock();
     const path = `support_chats/${chatId}/messages`;
     const messagesRef = collection(db, 'support_chats', chatId, 'messages');
-    return onSnapshot(messagesRef, (snapshot) => {
-      const items: LiveSupportMessage[] = [];
-      snapshot.forEach((docSnap) => {
-        items.push({ id: docSnap.id, ...(docSnap.data() as Omit<LiveSupportMessage, 'id'>) });
-      });
-      items.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      callback(items);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
-    });
+    return onSnapshot(
+      messagesRef,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        const items: LiveSupportMessage[] = [];
+        snapshot.forEach((docSnap) => {
+          const rawData = docSnap.data({ serverTimestamps: 'none' }) as Record<string, any>;
+          const hasCommittedServerTs =
+            rawData.serverTimestamp != null &&
+            (typeof rawData.serverTimestamp?.toDate === 'function' ||
+              typeof rawData.serverTimestamp?.seconds === 'number');
+
+          const canonicalCreatedAt = normalizeToUtcIso(
+            hasCommittedServerTs ? rawData.serverTimestamp : null,
+            rawData.createdAt
+          );
+
+          items.push({
+            id: docSnap.id,
+            chatId: rawData.chatId || chatId,
+            senderId: rawData.senderId || '',
+            senderName: rawData.senderName || 'Support',
+            senderRole: rawData.senderRole || 'user',
+            text: rawData.text || '',
+            createdAt: canonicalCreatedAt,
+            serverTimestamp: rawData.serverTimestamp,
+            isPendingTimestamp: Boolean(docSnap.metadata.hasPendingWrites && !hasCommittedServerTs),
+          });
+        });
+
+        items.sort((a, b) => {
+          const diff = parseUtcEpochMs(a.createdAt) - parseUtcEpochMs(b.createdAt);
+          if (diff !== 0) return diff;
+          return a.id.localeCompare(b.id);
+        });
+        callback(items);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
+    );
   },
 
-  // Send live support chat message
+  // Send live support chat message using authoritative server UTC timestamp
   async sendLiveSupportMessage(chatId: string, msg: Omit<LiveSupportMessage, 'id' | 'createdAt'>): Promise<void> {
     const path = `support_chats/${chatId}/messages`;
     const newDocRef = doc(collection(db, 'support_chats', chatId, 'messages'));
     try {
-      await setDoc(newDocRef, {
+      const { utcIso } = await getAuthoritativeServerTime();
+      await setDoc(newDocRef, cleanUndefined({
         ...msg,
         id: newDocRef.id,
-        createdAt: new Date().toISOString()
-      });
+        createdAt: utcIso,
+        serverTimestamp: serverTimestamp(),
+      }));
 
       // Automated helpful agent reply for common inquiries
       setTimeout(async () => {
@@ -446,15 +522,17 @@ export const RecipeService = {
             agentReply = "Our platform is fully optimized for iPad, Android tablets, phones, and desktops. If video playback buffers, please check your network connection.";
           }
 
+          const replyTime = await getAuthoritativeServerTime();
           await setDoc(replyRef, {
             chatId,
             senderId: 'agent-sarah',
             senderName: 'Sarah (DellyChow Support)',
             senderRole: 'agent',
             text: agentReply,
-            createdAt: new Date().toISOString()
+            createdAt: replyTime.utcIso,
+            serverTimestamp: serverTimestamp(),
           });
-        } catch (e) {
+        } catch {
           // Ignore
         }
       }, 1200);

@@ -15,7 +15,9 @@ import {
   Send,
   Edit3,
   AlertCircle,
-  Share2
+  Share2,
+  Flag,
+  Ban
 } from 'lucide-react';
 import { Recipe, CookingVideo, UserProfile, ChefReview } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
@@ -29,6 +31,7 @@ import { ASSET_IMAGES } from '../assets/images';
 import { UserAvatar } from '../components/UserAvatar';
 import { RecipeService } from '../services/recipeService';
 import { ShareModal, ShareItem } from '../components/ShareModal';
+import { ReportTarget } from '../components/ReportContentModal';
 
 interface ChefProfilePageProps {
   chefId: string;
@@ -38,6 +41,7 @@ interface ChefProfilePageProps {
   onPlayVideo: (video: CookingVideo) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup', role?: any) => void;
+  onReportContent?: (target: ReportTarget) => void;
 }
 
 export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
@@ -47,9 +51,10 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   onSelectRecipe,
   onPlayVideo,
   onRequestSubscribe,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onReportContent
 }) => {
-  const { currentUser, userProfile, isSubscribedToChef, setPendingAction } = useAuth();
+  const { currentUser, userProfile, isSubscribedToChef, setPendingAction, blockedUserIds, blockUser, unblockUser } = useAuth();
   const [chefProfile, setChefProfile] = useState<UserProfile | null>(null);
   const [loadingChef, setLoadingChef] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -355,6 +360,50 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
               <Crown className="w-4 h-4 text-amber-200" />
               <span>{isSubscribed ? 'VIP Privileges Active' : `Join VIP Circle ($${chefProfile?.premiumPriceMonthly || 9.99}/mo)`}</span>
             </button>
+
+            {currentUser?.uid !== chefId && (
+              <div className="flex items-center gap-2">
+                {onReportContent && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onReportContent({
+                        targetType: 'chef_profile',
+                        targetId: chefId,
+                        targetTitle: displayName,
+                        targetAuthorId: chefId,
+                        targetAuthorName: displayName,
+                      })
+                    }
+                    className="p-3 rounded-xl border border-stone-200 bg-white hover:bg-red-50 text-stone-500 hover:text-red-600 transition-colors cursor-pointer"
+                    title="Report chef profile or impersonation"
+                    aria-label="Report chef"
+                  >
+                    <Flag className="w-4 h-4" />
+                  </button>
+                )}
+
+                {currentUser && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      blockedUserIds.includes(chefId)
+                        ? unblockUser(chefId)
+                        : blockUser(chefId, displayName, 'Blocked from chef profile')
+                    }
+                    className={`p-3 rounded-xl border transition-colors cursor-pointer ${
+                      blockedUserIds.includes(chefId)
+                        ? 'border-red-300 bg-red-50 text-red-700'
+                        : 'border-stone-200 bg-white hover:bg-stone-50 text-stone-500 hover:text-stone-900'
+                    }`}
+                    title={blockedUserIds.includes(chefId) ? 'Unblock Chef' : 'Block Chef'}
+                    aria-label={blockedUserIds.includes(chefId) ? 'Unblock Chef' : 'Block Chef'}
+                  >
+                    <Ban className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
         </div>

@@ -23,20 +23,51 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { auth, db, googleProvider, handleFirestoreError, OperationType, testConnection } from '../lib/firebase';
-import { UserProfile, UserRole, Subscription, Favourite, Recipe, CookingVideo, VideoFavourite, PendingAction, UserNotification } from '../types';
+import {
+  UserProfile,
+  UserRole,
+  Subscription,
+  Favourite,
+  Recipe,
+  CookingVideo,
+  VideoFavourite,
+  PendingAction,
+  UserNotification,
+  LegalAcceptanceRecord,
+  BlockedUserRecord,
+  CookiePreferences,
+  UserPrivacySettings,
+} from '../types';
 import { ASSET_IMAGES } from '../assets/images';
 import { getDefaultAvatar } from '../constants/avatars';
 import { RecipeService } from '../services/recipeService';
+import { buildLegalAcceptanceRecord } from '../data/legalDocuments';
+import { getAuthoritativeServerTime } from '../lib/chatTimestamp';
+import { isAuthorizedAdminUser } from '../lib/admin';
+import {
+  LegalService,
+  getSavedCookiePreferences,
+  saveLocalCookiePreferences,
+} from '../services/legalService';
+
+export interface LegalSignupOptions {
+  ageGroup?: 'teen_13_17' | 'adult_18_plus';
+  parentalConsentConfirmed?: boolean;
+}
 
 interface AuthContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  isAdmin: boolean;
   activeSubscriptions: Subscription[];
   favourites: Favourite[];
   videoFavourites: VideoFavourite[];
   notifications: UserNotification[];
   unreadNotificationCount: number;
+  blockedUsers: BlockedUserRecord[];
+  blockedUserIds: string[];
+  cookiePreferences: CookiePreferences;
   pendingAction: PendingAction | null;
   pendingToast: string | null;
   activeWatchVideo: CookingVideo | null;
@@ -47,9 +78,30 @@ interface AuthContextType {
   isSubscribedToChef: (chefId: string) => boolean;
   isRecipeBookmarked: (recipeId: string) => boolean;
   isVideoBookmarked: (videoId: string) => boolean;
-  createAccount: (email: string, password: string, displayName: string, role: UserRole, specialty?: string) => Promise<UserProfile>;
+  createAccount: (
+    email: string,
+    password: string,
+    displayName: string,
+    role: UserRole,
+    specialty?: string,
+    acceptedTerms?: boolean,
+    signupOptions?: LegalSignupOptions
+  ) => Promise<UserProfile>;
   login: (email: string, password: string) => Promise<UserProfile>;
-  signInWithGoogle: (preferredRole?: UserRole) => Promise<UserProfile | null>;
+  signInWithGoogle: (
+    preferredRole?: UserRole,
+    acceptedTerms?: boolean,
+    signupOptions?: LegalSignupOptions
+  ) => Promise<UserProfile | null>;
+  acceptLatestLegalTerms: (
+    source?: 'signup' | 'update_prompt' | 'account_settings',
+    registrationMethod?: LegalAcceptanceRecord['registrationMethod']
+  ) => Promise<LegalAcceptanceRecord | null>;
+  declineUpdatedLegalTerms: () => Promise<void>;
+  blockUser: (targetUserId: string, targetName?: string, reason?: string) => Promise<void>;
+  unblockUser: (targetUserId: string) => Promise<void>;
+  updatePrivacySettings: (updates: Partial<UserPrivacySettings>) => Promise<void>;
+  updateCookiePreferences: (functionalStorage: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfileData: (updates: Partial<UserProfile>) => Promise<void>;
   markNotificationAsRead: (id: string) => Promise<void>;
@@ -73,6 +125,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [favourites, setFavourites] = useState<Favourite[]>([]);
   const [videoFavourites, setVideoFavourites] = useState<VideoFavourite[]>([]);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [hasAdminDoc, setHasAdminDoc] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUserRecord[]>([]);
+  const [cookiePreferences, setCookiePreferences] = useState<CookiePreferences>(() =>
+    getSavedCookiePreferences()
+  );
   const [activeWatchVideo, setActiveWatchVideo] = useState<CookingVideo | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [pendingToast, setPendingToast] = useState<string | null>(null);
@@ -244,20 +301,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, [currentUser]);
 
+  // Check optional /admins/{uid} document and subscribe to user block list
+  useEffect(() => {
+    if (!currentUser) {
+      setHasAdminDoc(false);
+      setBlockedUsers([]);
+      return;
+    }
+
+    getDoc(doc(db, 'admins', currentUser.uid))
+      .then((snap) => setHasAdminDoc(snap.exists()))
+      .catch(() => setHasAdminDoc(false));
+
+    const unsubBlocked = LegalService.listenToBlockedUsers(currentUser.uid, (records) => {
+      setBlockedUsers(records);
+    });
+
+    return () => {
+      unsubBlocked();
+    };
+  }, [currentUser]);
+
   // Create account with email & password and role
   const createAccount = async (
     email: string,
     password: string,
     displayName: string,
     role: UserRole,
-    specialty?: string
+    specialty?: string,
+    acceptedTerms = false,
+    signupOptions?: LegalSignupOptions
   ): Promise<UserProfile> => {
+    if (!acceptedTerms) {
+      throw new Error(
+        "Please read and agree to DellyChow's Terms and Conditions, Privacy Policy and Community Guidelines before registering."
+      );
+    }
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
       // Update Firebase Auth profile display name
       await fbUpdateProfile(user, { displayName });
+
+      const authoritativeNow = await getAuthoritativeServerTime()
+        .then((res) => res.utcIso)
+        .catch(() => new Date().toISOString());
+
+      const acceptanceRecord = buildLegalAcceptanceRecord(
+        user.uid,
+        authoritativeNow,
+        'signup',
+        'email_password',
+        'accepted'
+      );
+
+      const ageGroup = signupOptions?.ageGroup || 'adult_18_plus';
+      const isMinor = ageGroup === 'teen_13_17';
 
       const newProfile: UserProfile = {
         id: user.uid,
@@ -274,13 +374,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         perks: 'Exclusive monthly masterclasses, secret spice blends, private Discord & VIP chat access.',
         subscriberCount: 0,
         followerCount: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        accountStatus: 'active',
+        ageGroup,
+        privacySettings: {
+          profileVisibility: isMinor ? 'community_only' : 'public',
+          allowDirectSharing: !isMinor,
+          isMinorOrTeenProtected: isMinor,
+          parentalConsentConfirmed: Boolean(signupOptions?.parentalConsentConfirmed),
+          ageGroup,
+          cookiePreferences,
+          updatedAt: authoritativeNow,
+        },
+        legalAcceptance: acceptanceRecord,
+        createdAt: authoritativeNow,
+        updatedAt: authoritativeNow
       };
 
       const userDocRef = doc(db, 'users', user.uid);
       await setDoc(userDocRef, newProfile);
+      await LegalService.createLegalAcceptanceRecord(acceptanceRecord).catch(() => {});
       setUserProfile(newProfile);
+      try {
+        localStorage.setItem(`dellychow_profile_${user.uid}`, JSON.stringify(newProfile));
+      } catch {}
       return newProfile;
     } catch (err: any) {
       console.warn("Account creation notice:", err?.code || err?.message || err);
@@ -307,6 +423,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           displayName: user.displayName || 'Food Explorer',
           photoURL: user.photoURL || getDefaultAvatar(user.uid, 1).svgDataUri,
           role: 'user',
+          accountStatus: 'active',
           createdAt: new Date().toISOString()
         };
         await setDoc(userDocRef, fallbackProfile);
@@ -320,7 +437,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Google sign in with role selection
-  const signInWithGoogle = async (preferredRole?: UserRole): Promise<UserProfile | null> => {
+  const signInWithGoogle = async (
+    preferredRole?: UserRole,
+    acceptedTerms = false,
+    signupOptions?: LegalSignupOptions
+  ): Promise<UserProfile | null> => {
     try {
       const userCredential = await signInWithPopup(auth, googleProvider);
       const user = userCredential.user;
@@ -334,6 +455,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserProfile(profile);
         return profile;
       } else {
+        if (!acceptedTerms) {
+          // Sign back out immediately so unconsented brand-new Google signups cannot slip through
+          await fbSignOut(auth).catch(() => {});
+          throw new Error(
+            "Please accept DellyChow's Terms and Conditions, Privacy Policy and Community Guidelines to complete new account registration."
+          );
+        }
+        const authoritativeNow = await getAuthoritativeServerTime()
+          .then((res) => res.utcIso)
+          .catch(() => new Date().toISOString());
+
+        const acceptanceRecord = buildLegalAcceptanceRecord(
+          user.uid,
+          authoritativeNow,
+          'signup',
+          'google',
+          'accepted'
+        );
+
+        const ageGroup = signupOptions?.ageGroup || 'adult_18_plus';
+        const isMinor = ageGroup === 'teen_13_17';
+
         const initialProfile: UserProfile = {
           id: user.uid,
           email: user.email || '',
@@ -349,16 +492,152 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           perks: 'Exclusive monthly masterclasses, secret spice blends, private Discord & VIP chat access.',
           subscriberCount: 0,
           followerCount: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          accountStatus: 'active',
+          ageGroup,
+          privacySettings: {
+            profileVisibility: isMinor ? 'community_only' : 'public',
+            allowDirectSharing: !isMinor,
+            isMinorOrTeenProtected: isMinor,
+            parentalConsentConfirmed: Boolean(signupOptions?.parentalConsentConfirmed),
+            ageGroup,
+            cookiePreferences,
+            updatedAt: authoritativeNow,
+          },
+          legalAcceptance: acceptanceRecord,
+          createdAt: authoritativeNow,
+          updatedAt: authoritativeNow
         };
         await setDoc(userDocRef, initialProfile);
+        await LegalService.createLegalAcceptanceRecord(acceptanceRecord).catch(() => {});
         setUserProfile(initialProfile);
+        try {
+          localStorage.setItem(`dellychow_profile_${user.uid}`, JSON.stringify(initialProfile));
+        } catch {}
         return initialProfile;
       }
     } catch (err: any) {
       console.warn("Sign in notice:", err?.code || err?.message || err);
       throw err;
+    }
+  };
+
+  // Record explicit user acceptance of latest Terms & Privacy Policy
+  const acceptLatestLegalTerms = async (
+    source: 'signup' | 'update_prompt' | 'account_settings' = 'update_prompt',
+    registrationMethod?: LegalAcceptanceRecord['registrationMethod']
+  ): Promise<LegalAcceptanceRecord | null> => {
+    if (!currentUser || !userProfile) return null;
+    const acceptedAtIso = await getAuthoritativeServerTime()
+      .then((res) => res.utcIso)
+      .catch(() => new Date().toISOString());
+
+    const resolvedMethod: LegalAcceptanceRecord['registrationMethod'] =
+      registrationMethod ||
+      (source === 'account_settings' ? 'account_settings' : 'existing_user_update');
+
+    const record = buildLegalAcceptanceRecord(
+      currentUser.uid,
+      acceptedAtIso,
+      source,
+      resolvedMethod,
+      'accepted'
+    );
+    const userDocRef = doc(db, 'users', currentUser.uid);
+    const updatedProfile: UserProfile = {
+      ...userProfile,
+      legalAcceptance: record,
+      updatedAt: acceptedAtIso,
+    };
+
+    try {
+      await updateDoc(userDocRef, {
+        legalAcceptance: record,
+        updatedAt: acceptedAtIso,
+      });
+    } catch {
+      await setDoc(userDocRef, updatedProfile, { merge: true }).catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
+      });
+    }
+
+    await LegalService.createLegalAcceptanceRecord(record).catch(() => {});
+
+    setUserProfile(updatedProfile);
+    try {
+      localStorage.setItem(`dellychow_profile_${currentUser.uid}`, JSON.stringify(updatedProfile));
+    } catch {}
+    return record;
+  };
+
+  // Record non-destructive decline of updated policy without deleting user data
+  const declineUpdatedLegalTerms = async (): Promise<void> => {
+    if (!currentUser) return;
+    const utcIso = await getAuthoritativeServerTime()
+      .then((res) => res.utcIso)
+      .catch(() => new Date().toISOString());
+    const declinedRecord = buildLegalAcceptanceRecord(
+      currentUser.uid,
+      utcIso,
+      'update_prompt',
+      'existing_user_update',
+      'declined'
+    );
+    await LegalService.createLegalAcceptanceRecord(declinedRecord).catch(() => {});
+  };
+
+  const blockUser = async (targetUserId: string, targetName?: string, reason?: string) => {
+    if (!currentUser || !targetUserId || targetUserId === currentUser.uid) return;
+    const record = await LegalService.blockUser(currentUser.uid, targetUserId, targetName, reason);
+    setBlockedUsers((prev) => [record, ...prev.filter((b) => b.blockedUserId !== targetUserId)]);
+    setPendingToast(`Blocked ${targetName || 'user'}. You will no longer see their comments.`);
+    setTimeout(() => setPendingToast(null), 4000);
+  };
+
+  const unblockUser = async (targetUserId: string) => {
+    if (!currentUser) return;
+    await LegalService.unblockUser(currentUser.uid, targetUserId);
+    setBlockedUsers((prev) => prev.filter((b) => b.blockedUserId !== targetUserId));
+    setPendingToast('User removed from your block list.');
+    setTimeout(() => setPendingToast(null), 3500);
+  };
+
+  const updatePrivacySettings = async (updates: Partial<UserPrivacySettings>) => {
+    if (!currentUser || !userProfile) return;
+    const utcIso = new Date().toISOString();
+    const merged: UserPrivacySettings = {
+      profileVisibility: userProfile.privacySettings?.profileVisibility || 'public',
+      allowDirectSharing: userProfile.privacySettings?.allowDirectSharing ?? true,
+      isMinorOrTeenProtected: userProfile.privacySettings?.isMinorOrTeenProtected ?? false,
+      parentalConsentConfirmed: userProfile.privacySettings?.parentalConsentConfirmed,
+      ageGroup: userProfile.privacySettings?.ageGroup || userProfile.ageGroup || 'adult_18_plus',
+      cookiePreferences,
+      ...updates,
+      updatedAt: utcIso,
+    };
+
+    const userDocRef = doc(db, 'users', currentUser.uid);
+    await updateDoc(userDocRef, {
+      privacySettings: merged,
+      ...(merged.ageGroup ? { ageGroup: merged.ageGroup } : {}),
+      updatedAt: utcIso,
+    });
+    setUserProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            privacySettings: merged,
+            ...(merged.ageGroup ? { ageGroup: merged.ageGroup } : {}),
+            updatedAt: utcIso,
+          }
+        : null
+    );
+  };
+
+  const updateCookiePreferences = async (functionalStorage: boolean) => {
+    const nextPrefs = saveLocalCookiePreferences(functionalStorage);
+    setCookiePreferences(nextPrefs);
+    if (currentUser && userProfile) {
+      await updatePrivacySettings({ cookiePreferences: nextPrefs }).catch(() => {});
     }
   };
 
@@ -635,6 +914,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const unreadNotificationCount = notifications.filter(n => !n.read).length;
+  const isAdmin = isAuthorizedAdminUser(currentUser, hasAdminDoc);
+  const blockedUserIds = blockedUsers.map((b) => b.blockedUserId);
 
   return (
     <AuthContext.Provider
@@ -642,11 +923,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         userProfile,
         loading,
+        isAdmin,
         activeSubscriptions,
         favourites,
         videoFavourites,
         notifications,
         unreadNotificationCount,
+        blockedUsers,
+        blockedUserIds,
+        cookiePreferences,
         pendingAction,
         pendingToast,
         activeWatchVideo,
@@ -660,6 +945,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createAccount,
         login,
         signInWithGoogle,
+        acceptLatestLegalTerms,
+        declineUpdatedLegalTerms,
+        blockUser,
+        unblockUser,
+        updatePrivacySettings,
+        updateCookiePreferences,
         signOut,
         updateProfileData,
         markNotificationAsRead,

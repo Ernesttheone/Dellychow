@@ -11,6 +11,37 @@ export interface NutritionalInfo {
   fiber?: string;
 }
 
+export interface LegalAcceptanceRecord {
+  id?: string;
+  userId: string;
+  termsVersion: string;
+  privacyPolicyVersion: string;
+  communityGuidelinesVersion?: string;
+  copyrightPolicyVersion?: string;
+  foodSafetyVersion?: string;
+  cookiePolicyVersion?: string;
+  acceptedAt: string;
+  status: 'accepted' | 'declined';
+  registrationMethod?: 'email_password' | 'google' | 'existing_user_update' | 'account_settings';
+  source?: 'signup' | 'update_prompt' | 'account_settings';
+}
+
+export interface CookiePreferences {
+  essential: true; // Always active for Firebase Auth & session security
+  functionalStorage: boolean; // Theme preference & offline recipe/video thumbnail cache
+  updatedAt: string;
+}
+
+export interface UserPrivacySettings {
+  profileVisibility: 'public' | 'community_only';
+  allowDirectSharing: boolean;
+  isMinorOrTeenProtected: boolean;
+  parentalConsentConfirmed?: boolean;
+  ageGroup?: 'under_13' | 'teen_13_17' | 'adult_18_plus';
+  cookiePreferences?: CookiePreferences;
+  updatedAt?: string;
+}
+
 export interface UserProfile {
   id: string;
   email?: string;
@@ -24,6 +55,11 @@ export interface UserProfile {
   perks?: string;
   subscriberCount?: number;
   followerCount?: number;
+  accountStatus?: 'active' | 'restricted' | 'suspended' | 'pending_deletion';
+  restrictionReason?: string;
+  ageGroup?: 'under_13' | 'teen_13_17' | 'adult_18_plus';
+  privacySettings?: UserPrivacySettings;
+  legalAcceptance?: LegalAcceptanceRecord;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -159,6 +195,8 @@ export interface CommunityMessage {
   senderRole: 'chef' | 'member';
   text: string;
   createdAt: string;
+  serverTimestamp?: any;
+  isPendingTimestamp?: boolean;
 }
 
 export interface Masterclass {
@@ -251,6 +289,8 @@ export interface LiveSupportMessage {
   senderRole: 'user' | 'agent' | 'bot';
   text: string;
   createdAt: string;
+  serverTimestamp?: any;
+  isPendingTimestamp?: boolean;
 }
 
 export interface CommunitySettings {
@@ -429,4 +469,141 @@ export type PendingAction =
   | { type: 'add_to_shopping_list'; recipe: Recipe }
   | { type: 'submit_challenge_entry'; challengeId: string }
   | { type: 'vote_challenge_entry'; challengeId: string; entryId: string };
+
+export type LegalPolicyKey =
+  | 'legal'
+  | 'terms'
+  | 'privacy'
+  | 'guidelines'
+  | 'copyright'
+  | 'food-safety'
+  | 'cookies'
+  | 'reporting'
+  | 'contact';
+
+export interface CopyrightClaim {
+  id: string;
+  claimantUserId: string;
+  claimantName: string;
+  claimantEmail: string;
+  violationType:
+    | 'stolen_video'
+    | 'unauthorized_image'
+    | 'copied_recipe'
+    | 'copyrighted_music'
+    | 'creator_impersonation';
+  reportedTargetType: 'video' | 'recipe' | 'chef_profile' | 'user_profile';
+  reportedTargetId: string;
+  reportedTargetTitle?: string;
+  reportedContentUrl: string;
+  targetAuthorId?: string;
+  originalWorkTitle: string;
+  originalWorkUrl?: string;
+  originalWorkDescription: string;
+  goodFaithDeclaration: boolean;
+  status:
+    | 'submitted'
+    | 'under_review'
+    | 'action_taken'
+    | 'counter_notice_submitted'
+    | 'dismissed';
+  adminDecisionNotes?: string;
+  counterNoticeText?: string;
+  counterNoticeAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ModerationReport {
+  id: string;
+  reporterId: string;
+  reporterName?: string;
+  targetType:
+    | 'video'
+    | 'recipe'
+    | 'video_comment'
+    | 'recipe_comment'
+    | 'chef_profile'
+    | 'user_profile'
+    | 'external_link';
+  targetId: string;
+  targetTitle?: string;
+  targetAuthorId?: string;
+  reason:
+    | 'harassment'
+    | 'spam'
+    | 'fraud'
+    | 'suspicious_link'
+    | 'copyright_violation'
+    | 'impersonation'
+    | 'food_safety_hazard'
+    | 'inappropriate_minor_contact'
+    | 'other';
+  details: string;
+  status: 'pending' | 'under_review' | 'resolved' | 'dismissed';
+  resolutionAction?: 'none' | 'content_removed' | 'user_restricted' | 'user_suspended';
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ModerationAppeal {
+  id: string;
+  userId: string;
+  userName: string;
+  targetType: 'account' | 'video' | 'recipe' | 'comment' | 'copyright';
+  targetId: string;
+  referenceReportId?: string;
+  appealReason: string;
+  status: 'pending' | 'under_review' | 'approved' | 'rejected';
+  adminResponse?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BlockedUserRecord {
+  id: string;
+  blockerId: string;
+  blockedUserId: string;
+  blockedUserName?: string;
+  reason?: string;
+  createdAt: string;
+}
+
+export interface PrivacyRequest {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  requestType: 'account_deletion' | 'data_access' | 'data_correction' | 'privacy_inquiry';
+  details: string;
+  deletionConfirmationCode?: string;
+  acknowledgedDataRetention?: boolean;
+  status: 'pending' | 'processing' | 'completed' | 'cancelled';
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ModerationAuditLog {
+  id: string;
+  adminId: string;
+  adminEmail: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  details: string;
+  timestamp: string;
+}
+
+export interface PolicyVersionMetadata {
+  id: string;
+  policyKey: LegalPolicyKey;
+  title: string;
+  version: string;
+  lastUpdated: string;
+  updatedByEmail?: string;
+  summaryOfChanges?: string;
+}
+
 

@@ -22,7 +22,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email == 'ceganigabriel@gmail.com' && request.auth.token.email_verified == true) ||
+        ((request.auth.token.email == 'ceganigabriel@gmail.com' || request.auth.token.email == 'bunnicula646@gmail.com') && request.auth.token.email_verified == true) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -54,8 +54,11 @@ service cloud.firestore {
         && incoming().displayName is string
         && incoming().displayName.size() > 0
         && incoming().displayName.size() <= 100;
-      allow update: if isOwner(userId)
-        || isAdmin()
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && incoming().id == existing().id
+            && incoming().role == existing().role
+            && (!('accountStatus' in incoming()) || incoming().accountStatus == existing().get('accountStatus', 'active') || incoming().accountStatus == 'pending_deletion'))
         || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['ratingAverage', 'ratingCount', 'subscriberCount', 'followerCount']));
       allow delete: if isAdmin();
 
@@ -180,11 +183,11 @@ service cloud.firestore {
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
-    // Customer Support Tickets
+    // Customer Support Tickets (private to ticket owner or admin)
     match /support_tickets/{ticketId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || !('userId' in resource.data));
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if true;
-      allow update: if isSignedIn();
+      allow update: if isAdmin();
     }
 
     // Live Support Chat Messages
@@ -192,11 +195,11 @@ service cloud.firestore {
       allow read, create: if true;
     }
 
-    // Community Reports
+    // Community Reports (private to reporter or admin)
     match /community_reports/{reportId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && (resource.data.reportedByUserId == request.auth.uid || resource.data.reportedBy == request.auth.uid || isAdmin());
       allow create: if isSignedIn();
-      allow update, delete: if false;
+      allow update, delete: if isAdmin();
     }
 
     // Masterclass Registrations
@@ -240,6 +243,117 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isSignedIn();
       allow delete: if false;
+    }
+
+    // Immutable Legal Consent & Policy Acceptance Audit Records
+    match /legal_acceptances/{acceptanceId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isValidId(acceptanceId)
+        && incoming().userId == request.auth.uid
+        && incoming().termsVersion is string && incoming().termsVersion.size() <= 32
+        && incoming().privacyPolicyVersion is string && incoming().privacyPolicyVersion.size() <= 32
+        && incoming().communityGuidelinesVersion is string && incoming().communityGuidelinesVersion.size() <= 32
+        && incoming().status in ['accepted', 'declined']
+        && incoming().registrationMethod is string && incoming().registrationMethod.size() <= 64;
+      allow update, delete: if false;
+    }
+
+    // Copyright & Creator Protection Claims (Private to claimant/affected author & admins)
+    match /copyright_claims/{claimId} {
+      allow read: if isSignedIn() && (
+        resource.data.claimantUserId == request.auth.uid ||
+        resource.data.targetAuthorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isSignedIn()
+        && isValidId(claimId)
+        && incoming().claimantUserId == request.auth.uid
+        && incoming().claimantName is string && incoming().claimantName.size() > 0 && incoming().claimantName.size() <= 120
+        && incoming().claimantEmail is string && incoming().claimantEmail.size() > 0 && incoming().claimantEmail.size() <= 160
+        && incoming().violationType is string && incoming().violationType.size() <= 64
+        && incoming().reportedTargetType is string && incoming().reportedTargetType.size() <= 64
+        && incoming().originalWorkDescription is string && incoming().originalWorkDescription.size() >= 10 && incoming().originalWorkDescription.size() <= 3000
+        && incoming().goodFaithDeclaration == true
+        && incoming().status == 'submitted';
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (existing().targetAuthorId == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['counterNoticeText', 'counterNoticeAt', 'status', 'updatedAt'])
+          && incoming().status == 'counter_notice_submitted'
+          && incoming().counterNoticeText is string
+          && incoming().counterNoticeText.size() >= 10
+          && incoming().counterNoticeText.size() <= 3000)
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Unified Content & User Safety Moderation Reports (Private to reporter & admins)
+    match /moderation_reports/{reportId} {
+      allow read: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isValidId(reportId)
+        && incoming().reporterId == request.auth.uid
+        && incoming().targetType is string && incoming().targetType.size() <= 64
+        && incoming().targetId is string && incoming().targetId.size() <= 128
+        && incoming().reason is string && incoming().reason.size() <= 100
+        && incoming().details is string && incoming().details.size() <= 3000
+        && incoming().status == 'pending';
+      allow update, delete: if isAdmin();
+    }
+
+    // Moderation Appeals (Private to appellant user & admins)
+    match /moderation_appeals/{appealId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isValidId(appealId)
+        && incoming().userId == request.auth.uid
+        && incoming().targetId is string && incoming().targetId.size() <= 128
+        && incoming().appealReason is string && incoming().appealReason.size() >= 10 && incoming().appealReason.size() <= 3000
+        && incoming().status == 'pending';
+      allow update, delete: if isAdmin();
+    }
+
+    // User Block List (Strictly private to blocker & admins)
+    match /blocked_users/{blockId} {
+      allow read: if isSignedIn() && (resource.data.blockerId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isValidId(blockId)
+        && incoming().blockerId == request.auth.uid
+        && isValidId(incoming().blockedUserId);
+      allow delete: if isSignedIn() && (existing().blockerId == request.auth.uid || isAdmin());
+      allow update: if false;
+    }
+
+    // Account Deletion & Privacy Data Rights Requests (Private to requester & admins)
+    match /privacy_requests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isValidId(requestId)
+        && incoming().userId == request.auth.uid
+        && incoming().requestType in ['account_deletion', 'data_access', 'data_correction', 'privacy_inquiry']
+        && incoming().details is string && incoming().details.size() <= 3000
+        && incoming().status == 'pending';
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (existing().userId == request.auth.uid
+          && existing().status == 'pending'
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && incoming().status == 'cancelled')
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Immutable Administrative Audit Logs
+    match /moderation_audit_logs/{logId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Legal Policy Versions & Effective Dates
+    match /policy_metadata/{policyId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
     }
   }
 }

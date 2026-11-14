@@ -24,7 +24,10 @@ import {
   Camera,
   Loader2,
   Trophy,
-  Share2
+  Share2,
+  Flag,
+  Ban,
+  Lock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Recipe, CookingVideo, UserBadge, UserProfile } from '../types';
@@ -34,6 +37,7 @@ import { DEFAULT_AVATARS, getDefaultAvatar } from '../constants/avatars';
 import { processDeviceImage } from '../lib/imageUtils';
 import { ChallengeService } from '../services/challengeService';
 import { ShareModal, ShareItem } from '../components/ShareModal';
+import { ReportTarget } from '../components/ReportContentModal';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
@@ -45,6 +49,7 @@ interface UserProfilePageProps {
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal: (mode?: 'login' | 'signup') => void;
   viewUserId?: string;
+  onReportContent?: (target: ReportTarget) => void;
 }
 
 export const UserProfilePage: React.FC<UserProfilePageProps> = ({
@@ -53,9 +58,10 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   onSelectChef,
   onNavigate,
   onOpenAuthModal,
-  viewUserId
+  viewUserId,
+  onReportContent
 }) => {
-  const { currentUser, userProfile, favourites, activeSubscriptions, updateProfileData } = useAuth();
+  const { currentUser, userProfile, favourites, activeSubscriptions, updateProfileData, blockedUserIds, blockUser, unblockUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'favourites' | 'subscriptions' | 'avatars' | 'badges'>('favourites');
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
@@ -169,6 +175,29 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
       );
     }
 
+    if (publicUser.privacySettings?.profileVisibility === 'community_only' && !currentUser) {
+      return (
+        <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-2xs">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h2 className="font-serif-display text-2xl font-bold text-stone-900">
+            Community-Only Profile
+          </h2>
+          <p className="text-xs sm:text-sm text-stone-500 leading-relaxed">
+            This member has limited profile visibility to registered DellyChow users. Sign in to view community profiles.
+          </p>
+          <button
+            type="button"
+            onClick={() => onOpenAuthModal('login')}
+            className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-xs cursor-pointer"
+          >
+            Sign In to View
+          </button>
+        </div>
+      );
+    }
+
     const publicJoinDate = publicUser.createdAt 
       ? new Date(publicUser.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
       : 'Oct 2026';
@@ -216,16 +245,56 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
               </div>
             </div>
 
-            {/* Quick Share CTA */}
-            <div className="flex items-center gap-3 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-white/10 shrink-0">
+            {/* Quick Share, Report & Block CTA */}
+            <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-white/10 shrink-0">
               <button
                 type="button"
                 onClick={handleShareMyProfile}
-                className="w-full md:w-auto px-5 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer uppercase tracking-wider"
+                className="flex-1 md:flex-none px-5 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer uppercase tracking-wider"
               >
                 <Share2 className="w-4 h-4" />
                 <span>Share Profile</span>
               </button>
+
+              {onReportContent && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onReportContent({
+                      targetType: 'user_profile',
+                      targetId: publicUser.id,
+                      targetTitle: publicUser.displayName,
+                      targetAuthorId: publicUser.id,
+                      targetAuthorName: publicUser.displayName,
+                    })
+                  }
+                  className="p-3 rounded-xl bg-white/10 hover:bg-red-500/20 text-stone-200 hover:text-red-300 transition-colors cursor-pointer"
+                  title="Report user profile"
+                  aria-label="Report profile"
+                >
+                  <Flag className="w-4 h-4" />
+                </button>
+              )}
+
+              {currentUser && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    blockedUserIds.includes(publicUser.id)
+                      ? unblockUser(publicUser.id)
+                      : blockUser(publicUser.id, publicUser.displayName, 'Blocked from user profile')
+                  }
+                  className={`p-3 rounded-xl transition-colors cursor-pointer ${
+                    blockedUserIds.includes(publicUser.id)
+                      ? 'bg-red-600 text-white'
+                      : 'bg-white/10 hover:bg-white/20 text-stone-200'
+                  }`}
+                  title={blockedUserIds.includes(publicUser.id) ? 'Unblock User' : 'Block User'}
+                  aria-label={blockedUserIds.includes(publicUser.id) ? 'Unblock User' : 'Block User'}
+                >
+                  <Ban className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
           <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />

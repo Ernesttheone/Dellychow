@@ -15,7 +15,8 @@ import {
   Lock,
   Send,
   Timer,
-  ShoppingCart
+  ShoppingCart,
+  Flag
 } from 'lucide-react';
 import { Recipe, Comment } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -24,6 +25,7 @@ import { CookingTimer } from '../components/CookingTimer';
 import { UserAvatar } from '../components/UserAvatar';
 import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
 import { extractStepMinutes } from '../lib/recipeTimeUtils';
+import { ReportTarget } from '../components/ReportContentModal';
 
 interface RecipeDetailPageProps {
   recipe: Recipe;
@@ -32,6 +34,7 @@ interface RecipeDetailPageProps {
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup', role?: any) => void;
   onAddToShoppingList?: (recipe: Recipe) => void;
+  onReportContent?: (target: ReportTarget) => void;
 }
 
 export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
@@ -40,9 +43,10 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   onSelectChef,
   onRequestSubscribe,
   onOpenAuthModal,
-  onAddToShoppingList
+  onAddToShoppingList,
+  onReportContent
 }) => {
-  const { currentUser, userProfile, isRecipeBookmarked, toggleBookmark, isSubscribedToChef, setPendingAction } = useAuth();
+  const { currentUser, userProfile, isRecipeBookmarked, toggleBookmark, isSubscribedToChef, setPendingAction, blockedUserIds } = useAuth();
   
   const [servingsMultiplier, setServingsMultiplier] = useState(1);
   const [checkedIngredients, setCheckedIngredients] = useState<Record<number, boolean>>({});
@@ -229,6 +233,26 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
             <Bookmark className={`w-4 h-4 ${bookmarked ? 'fill-white' : ''}`} />
             <span>{bookmarked ? 'Saved in Favourites' : 'Save to Favourites'}</span>
           </button>
+
+          {onReportContent && (
+            <button
+              type="button"
+              onClick={() =>
+                onReportContent({
+                  targetType: 'recipe',
+                  targetId: recipe.id,
+                  targetTitle: recipe.title,
+                  targetAuthorId: recipe.authorId,
+                  targetAuthorName: recipe.authorName,
+                })
+              }
+              className="p-2.5 rounded-xl border border-stone-200 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+              title="Report recipe or copyright issue"
+              aria-label="Report recipe"
+            >
+              <Flag className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -626,14 +650,16 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
             </form>
 
 
-            {/* Comments List */}
+            {/* Comments List (Filtered for blocked users) */}
             <div className="space-y-4 pt-2">
-              {comments.length === 0 ? (
+              {comments.filter((c) => !blockedUserIds.includes(c.userId)).length === 0 ? (
                 <p className="text-xs text-stone-400 text-center py-4">
                   No cooking comments yet. Be the first to try this recipe!
                 </p>
               ) : (
-                comments.map((comment) => (
+                comments
+                  .filter((c) => !blockedUserIds.includes(c.userId))
+                  .map((comment) => (
                   <div key={comment.id} className="p-4 rounded-2xl bg-stone-50/80 border border-stone-200/70 space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
@@ -646,9 +672,30 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                         />
                         <span className="font-semibold text-stone-800">{comment.userName}</span>
                       </div>
-                      <span className="text-stone-400 text-[11px]">
-                        {new Date(comment.createdAt).toLocaleDateString()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-stone-400 text-[11px]">
+                          {new Date(comment.createdAt).toLocaleDateString()}
+                        </span>
+                        {onReportContent && comment.userId !== currentUser?.uid && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onReportContent({
+                                targetType: 'recipe_comment',
+                                targetId: comment.id,
+                                targetTitle: `Recipe comment by ${comment.userName}`,
+                                targetAuthorId: comment.userId,
+                                targetAuthorName: comment.userName,
+                              })
+                            }
+                            className="text-stone-400 hover:text-red-600 transition-colors cursor-pointer"
+                            title="Report comment or block user"
+                            aria-label="Report comment"
+                          >
+                            <Flag className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-xs sm:text-sm text-stone-700 pl-8 leading-relaxed">
                       {comment.content}

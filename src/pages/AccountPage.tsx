@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   User, 
   ChefHat, 
@@ -7,18 +7,33 @@ import {
   Save, 
   Camera, 
   Check, 
-  Sparkles,
   ArrowRight,
-  Shield,
   Upload,
   Trash2,
   Loader2,
-  KeyRound
+  KeyRound,
+  Scale,
+  ShieldCheck,
+  ShieldAlert,
+  FileDown,
+  Ban,
+  Cookie,
+  UserX,
+  Lock,
+  Flag,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { ASSET_IMAGES } from '../assets/images';
 import { DEFAULT_AVATARS } from '../constants/avatars';
 import { processDeviceImage } from '../lib/imageUtils';
+import {
+  CURRENT_TERMS_VERSION,
+  CURRENT_PRIVACY_VERSION,
+  hasAcceptedLatestLegal,
+} from '../data/legalDocuments';
+import { LegalService } from '../services/legalService';
+import { PrivacyRequest, UserPrivacySettings } from '../types';
 
 interface AccountPageProps {
   onNavigate: (view: string, params?: any) => void;
@@ -26,7 +41,21 @@ interface AccountPageProps {
 }
 
 export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate, onOpenAuthModal }) => {
-  const { currentUser, userProfile, updateProfileData, favourites, activeSubscriptions, sendPasswordReset } = useAuth();
+  const {
+    currentUser,
+    userProfile,
+    isAdmin,
+    updateProfileData,
+    favourites,
+    activeSubscriptions,
+    sendPasswordReset,
+    acceptLatestLegalTerms,
+    blockedUsers,
+    unblockUser,
+    cookiePreferences,
+    updateCookiePreferences,
+    updatePrivacySettings,
+  } = useAuth();
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
 
@@ -39,6 +68,33 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate, onOpenAuth
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageFileName, setImageFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Privacy, Data Rights & Account Deletion State
+  const [privacySaving, setPrivacySaving] = useState(false);
+  const [privacySavedNotice, setPrivacySavedNotice] = useState<string | null>(null);
+  const [exportingData, setExportingData] = useState(false);
+  const [privacyRequests, setPrivacyRequests] = useState<PrivacyRequest[]>([]);
+  const [rightsRequestType, setRightsRequestType] = useState<'data_access' | 'data_correction' | 'privacy_inquiry'>('data_access');
+  const [rightsDetails, setRightsDetails] = useState('');
+  const [submittingRights, setSubmittingRights] = useState(false);
+  const [rightsSubmittedMsg, setRightsSubmittedMsg] = useState<string | null>(null);
+
+  // Confirmed Account Deletion Workflow
+  const [deletionStep, setDeletionStep] = useState<'idle' | 'confirm'>('idle');
+  const [deletionPhrase, setDeletionPhrase] = useState('');
+  const [deletionAckChecked, setDeletionAckChecked] = useState(false);
+  const [deletionReason, setDeletionReason] = useState('');
+  const [submittingDeletion, setSubmittingDeletion] = useState(false);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setPrivacyRequests([]);
+      return;
+    }
+    const unsub = LegalService.listenToMyPrivacyRequests(currentUser.uid, setPrivacyRequests);
+    return () => unsub();
+  }, [currentUser]);
 
   if (!currentUser || !userProfile) {
     return (
@@ -495,6 +551,596 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate, onOpenAuth
           )}
         </div>
       )}
+
+      {/* Legal Agreements & Compliance Status */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Scale className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-serif-display text-base font-bold text-stone-900 dark:text-stone-100">
+                Legal Agreements &amp; Legal Centre
+              </h4>
+              <p className="text-xs text-stone-500 dark:text-stone-400">
+                {hasAcceptedLatestLegal(userProfile) && userProfile?.legalAcceptance
+                  ? `Accepted Terms v${userProfile.legalAcceptance.termsVersion} & Privacy v${userProfile.legalAcceptance.privacyPolicyVersion} on ${new Date(
+                      userProfile.legalAcceptance.acceptedAt
+                    ).toLocaleString()}`
+                  : `Current version: Terms v${CURRENT_TERMS_VERSION} & Privacy v${CURRENT_PRIVACY_VERSION} (pending confirmation)`}
+              </p>
+            </div>
+          </div>
+
+          {hasAcceptedLatestLegal(userProfile) ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200/70 self-start sm:self-center">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Up to Date</span>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => acceptLatestLegalTerms('account_settings', 'account_settings')}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors cursor-pointer self-start sm:self-center"
+            >
+              Accept Current Terms (v{CURRENT_TERMS_VERSION})
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-100 dark:border-stone-800">
+          {[
+            { id: 'legal', label: 'Legal Centre Hub' },
+            { id: 'terms', label: 'Terms & Conditions' },
+            { id: 'privacy', label: 'Privacy Policy' },
+            { id: 'guidelines', label: 'Community Guidelines' },
+            { id: 'copyright', label: 'Copyright & IP' },
+            { id: 'food-safety', label: 'Food Safety' },
+            { id: 'cookies', label: 'Cookie Policy' },
+            { id: 'reporting', label: 'Report & Appeals' },
+            { id: 'contact', label: 'Legal Support' },
+          ].map((docLink) => (
+            <button
+              key={docLink.id}
+              type="button"
+              onClick={() => onNavigate(docLink.id)}
+              className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              {docLink.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Privacy Controls & Teen Safety Settings */}
+      {(() => {
+        const privacySettings: UserPrivacySettings = userProfile.privacySettings || {
+          profileVisibility: 'public',
+          allowDirectSharing: true,
+          isMinorOrTeenProtected: userProfile.ageGroup === 'teen_13_17',
+          ageGroup: userProfile.ageGroup,
+        };
+
+        const handleTogglePrivacy = async (updates: Partial<UserPrivacySettings>, label: string) => {
+          setPrivacySaving(true);
+          setPrivacySavedNotice(null);
+          try {
+            await updatePrivacySettings(updates);
+            setPrivacySavedNotice(label);
+            setTimeout(() => setPrivacySavedNotice(null), 3000);
+          } catch (err) {
+            console.error('Failed to update privacy settings:', err);
+          } finally {
+            setPrivacySaving(false);
+          }
+        };
+
+        const pendingDeletion = privacyRequests.find(
+          (r) => r.requestType === 'account_deletion' && (r.status === 'pending' || r.status === 'processing')
+        );
+
+        return (
+          <div className="space-y-6">
+            <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-stone-100 dark:border-stone-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <Lock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-serif-display text-base font-bold text-stone-900 dark:text-stone-100">
+                      Privacy Controls &amp; Teen Safety (NDPA 2023)
+                    </h4>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">
+                      Control who views your culinary profile, external sharing links, and offline video metadata cache.
+                    </p>
+                  </div>
+                </div>
+                {privacySavedNotice && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{privacySavedNotice}</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/40 space-y-2">
+                  <label className="block text-xs font-bold text-stone-800 dark:text-stone-200 uppercase tracking-wider">
+                    Profile Visibility
+                  </label>
+                  <select
+                    value={privacySettings.profileVisibility}
+                    disabled={privacySaving}
+                    onChange={(e) =>
+                      handleTogglePrivacy(
+                        { profileVisibility: e.target.value as 'public' | 'community_only' },
+                        'Profile visibility updated'
+                      )
+                    }
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="public">Public (Visible to visitors &amp; members)</option>
+                    <option value="community_only">Community Only (Signed-in DellyChow members)</option>
+                  </select>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    When set to Community Only, signed-out visitors cannot browse your profile details.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/40 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      Enhanced Teen Protection (13–17)
+                    </p>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+                      Prioritizes stricter safety moderation and restricts unsolicited public profile discovery.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={privacySaving}
+                    onClick={() =>
+                      handleTogglePrivacy(
+                        { isMinorOrTeenProtected: !privacySettings.isMinorOrTeenProtected },
+                        'Teen protection setting updated'
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-colors cursor-pointer ${
+                      privacySettings.isMinorOrTeenProtected
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+                    }`}
+                  >
+                    {privacySettings.isMinorOrTeenProtected ? 'Active' : 'Enable'}
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/40 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      Direct Profile Share Links
+                    </p>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+                      Allow your public DellyChow profile URL to be copied or shared across devices.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={privacySaving}
+                    onClick={() =>
+                      handleTogglePrivacy(
+                        { allowDirectSharing: !privacySettings.allowDirectSharing },
+                        'Sharing preference saved'
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-colors cursor-pointer ${
+                      privacySettings.allowDirectSharing
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+                    }`}
+                  >
+                    {privacySettings.allowDirectSharing ? 'Allowed' : 'Disabled'}
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/40 flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <Cookie className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                        Offline Watch &amp; Thumbnail Cache
+                      </p>
+                      <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+                        Functional browser cache for low-network viewing. Essential auth cookies always remain active.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateCookiePreferences(!cookiePreferences.functionalStorage)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-colors cursor-pointer ${
+                      cookiePreferences.functionalStorage
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+                    }`}
+                  >
+                    {cookiePreferences.functionalStorage ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Blocked Users Manager */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center justify-center shrink-0">
+                    <Ban className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-serif-display text-base font-bold text-stone-900 dark:text-stone-100">
+                      Blocked Accounts ({blockedUsers.length})
+                    </h4>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">
+                      Comments and interactions from blocked accounts are hidden from your view.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('reporting')}
+                  className="text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Flag className="w-3.5 h-3.5" />
+                  <span>Reports &amp; Appeals</span>
+                </button>
+              </div>
+
+              {blockedUsers.length === 0 ? (
+                <p className="text-xs text-stone-500 dark:text-stone-400 py-2">
+                  You have not blocked any accounts. You can block a user from any chef/user profile or content report modal.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {blockedUsers.map((rec) => (
+                    <div
+                      key={rec.id}
+                      className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-stone-50 dark:bg-stone-950/40 border border-stone-200/70 dark:border-stone-800"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">
+                          {rec.blockedUserName || rec.blockedUserId}
+                        </p>
+                        <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate">
+                          Blocked on {new Date(rec.createdAt).toLocaleDateString()}
+                          {rec.reason ? ` • ${rec.reason}` : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => unblockUser(rec.blockedUserId)}
+                        className="px-3 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold transition-colors cursor-pointer shrink-0"
+                      >
+                        Unblock
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* NDPA 2023 Data Rights, Export & Confirmed Account Deletion */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-100 dark:border-stone-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <FileDown className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-serif-display text-base font-bold text-stone-900 dark:text-stone-100">
+                      Your Data Rights &amp; Portability (NDPA 2023)
+                    </h4>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">
+                      Download a portable JSON copy of your DellyChow profile and saved bookmarks, or request access/correction.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={exportingData}
+                  onClick={async () => {
+                    setExportingData(true);
+                    try {
+                      await LegalService.downloadPersonalDataExport(currentUser.uid, userProfile);
+                    } finally {
+                      setExportingData(false);
+                    }
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-amber-600 hover:bg-stone-800 dark:hover:bg-amber-700 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  {exportingData ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Preparing JSON...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-4 h-4" />
+                      <span>Export My Data (JSON)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Data Access / Correction Request Form */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!rightsDetails.trim()) return;
+                  setSubmittingRights(true);
+                  setRightsSubmittedMsg(null);
+                  try {
+                    const res = await LegalService.submitPrivacyRequest({
+                      userId: currentUser.uid,
+                      userEmail: currentUser.email || userProfile.email || '',
+                      userName: userProfile.displayName,
+                      requestType: rightsRequestType,
+                      details: rightsDetails.trim(),
+                    });
+                    setRightsDetails('');
+                    setRightsSubmittedMsg(`Privacy request logged (Ref: ${res.id.slice(0, 8)}).`);
+                  } finally {
+                    setSubmittingRights(false);
+                  }
+                }}
+                className="space-y-3"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <select
+                    value={rightsRequestType}
+                    onChange={(e) => setRightsRequestType(e.target.value as any)}
+                    className="text-xs px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-950/40 text-stone-800 dark:text-stone-200"
+                  >
+                    <option value="data_access">Request Data Access Report</option>
+                    <option value="data_correction">Request Data Correction</option>
+                    <option value="privacy_inquiry">General Privacy / DPO Inquiry</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={rightsDetails}
+                    onChange={(e) => setRightsDetails(e.target.value)}
+                    required
+                    placeholder="Specify what data record you want accessed or corrected..."
+                    className="sm:col-span-2 text-xs px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-950/40 text-stone-800 dark:text-stone-200"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {rightsSubmittedMsg ? (
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{rightsSubmittedMsg}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-stone-500 dark:text-stone-400">
+                      Handled under Nigeria Data Protection Act (NDPA) 2023 data subject rights.
+                    </span>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={submittingRights || !rightsDetails.trim()}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {submittingRights ? 'Submitting...' : 'Submit Data Request'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Recent Privacy / Deletion Requests */}
+              {privacyRequests.length > 0 && (
+                <div className="pt-3 border-t border-stone-100 dark:border-stone-800 space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                    Your Submitted Privacy &amp; Deletion Requests
+                  </p>
+                  {privacyRequests.slice(0, 4).map((req) => (
+                    <div
+                      key={req.id}
+                      className="p-3 rounded-xl bg-stone-50 dark:bg-stone-950/40 border border-stone-200/70 dark:border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-bold text-stone-900 dark:text-stone-100 uppercase">
+                          {req.requestType.replace('_', ' ')}
+                        </span>{' '}
+                        <span className="text-stone-500">• {new Date(req.createdAt).toLocaleDateString()}</span>
+                        <p className="text-[11px] text-stone-600 dark:text-stone-400 truncate mt-0.5">{req.details}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-100 text-amber-800">
+                          {req.status}
+                        </span>
+                        {req.requestType === 'account_deletion' &&
+                          (req.status === 'pending' || req.status === 'processing') && (
+                            <button
+                              type="button"
+                              onClick={() => LegalService.cancelDeletionRequest(req.id, currentUser.uid)}
+                              className="px-2.5 py-1 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-800 text-[11px] font-semibold cursor-pointer"
+                            >
+                              Cancel Deletion
+                            </button>
+                          )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Confirmed Account Deletion Workflow */}
+              <div className="pt-4 border-t border-red-200/70 dark:border-red-900/40 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <UserX className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h5 className="text-sm font-bold text-stone-900 dark:text-stone-100">
+                        Confirmed Account Deletion
+                      </h5>
+                      <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                        Removing your account permanently erases your public profile, saved bookmarks, and login access after verification. Safety audit logs and transaction records required by law may be retained in anonymized form.
+                      </p>
+                    </div>
+                  </div>
+
+                  {!pendingDeletion && deletionStep === 'idle' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeletionStep('confirm');
+                        setDeletionError(null);
+                      }}
+                      className="px-4 py-2 rounded-xl border border-red-300 text-red-700 hover:bg-red-50 text-xs font-semibold transition-colors cursor-pointer shrink-0"
+                    >
+                      Request Account Deletion
+                    </button>
+                  )}
+                </div>
+
+                {pendingDeletion && (
+                  <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-xs text-red-900 dark:text-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <span>
+                        Your account is queued for verified deletion (Ref: {pendingDeletion.id.slice(0, 8)}). You may cancel before final execution.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => LegalService.cancelDeletionRequest(pendingDeletion.id, currentUser.uid)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-red-300 text-red-700 font-semibold text-xs hover:bg-red-100 cursor-pointer shrink-0"
+                    >
+                      Cancel Deletion Request
+                    </button>
+                  </div>
+                )}
+
+                {deletionStep === 'confirm' && !pendingDeletion && (
+                  <div className="p-4 rounded-2xl bg-red-50/70 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 space-y-3">
+                    <p className="text-xs font-semibold text-red-900 dark:text-red-200">
+                      To prevent accidental deletion, please type <code className="px-1.5 py-0.5 bg-white rounded border border-red-200 text-red-700 font-mono">DELETE MY ACCOUNT</code> below and confirm your acknowledgment.
+                    </p>
+                    {deletionError && (
+                      <p className="text-xs text-red-700 font-semibold">{deletionError}</p>
+                    )}
+                    <input
+                      type="text"
+                      value={deletionPhrase}
+                      onChange={(e) => setDeletionPhrase(e.target.value)}
+                      placeholder="Type DELETE MY ACCOUNT"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-red-200 bg-white text-stone-900"
+                    />
+                    <input
+                      type="text"
+                      value={deletionReason}
+                      onChange={(e) => setDeletionReason(e.target.value)}
+                      placeholder="Optional reason for leaving (helps improve DellyChow)"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white text-stone-900"
+                    />
+                    <label className="flex items-start gap-2 text-xs text-stone-700 dark:text-stone-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deletionAckChecked}
+                        onChange={(e) => setDeletionAckChecked(e.target.checked)}
+                        className="mt-0.5 accent-red-600"
+                      />
+                      <span>
+                        I understand that my profile, unpublished drafts, and VIP circle access will be permanently removed, while minimal moderation/legal audit records required under Nigerian law are retained.
+                      </span>
+                    </label>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeletionStep('idle');
+                          setDeletionPhrase('');
+                          setDeletionAckChecked(false);
+                          setDeletionError(null);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 text-xs font-semibold cursor-pointer"
+                      >
+                        Keep My Account
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submittingDeletion}
+                        onClick={async () => {
+                          if (deletionPhrase.trim().toUpperCase() !== 'DELETE MY ACCOUNT') {
+                            setDeletionError('Please type DELETE MY ACCOUNT exactly to proceed.');
+                            return;
+                          }
+                          if (!deletionAckChecked) {
+                            setDeletionError('Please confirm the data retention acknowledgment checkbox.');
+                            return;
+                          }
+                          setDeletionError(null);
+                          setSubmittingDeletion(true);
+                          try {
+                            await LegalService.submitPrivacyRequest({
+                              userId: currentUser.uid,
+                              userEmail: currentUser.email || userProfile.email || '',
+                              userName: userProfile.displayName,
+                              requestType: 'account_deletion',
+                              details: deletionReason.trim() || 'User-initiated confirmed account deletion request',
+                              deletionConfirmationCode: 'DELETE MY ACCOUNT',
+                              acknowledgedDataRetention: true,
+                            });
+                            setDeletionStep('idle');
+                            setDeletionPhrase('');
+                            setDeletionAckChecked(false);
+                          } finally {
+                            setSubmittingDeletion(false);
+                          }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                      >
+                        {submittingDeletion ? 'Submitting...' : 'Confirm Account Deletion'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Admin Governance & Moderation Launch Card (Strictly Authorized Admins Only) */}
+            {isAdmin && (
+              <div className="p-6 rounded-3xl bg-stone-900 text-white border border-amber-500/40 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-600 text-white flex items-center justify-center shrink-0">
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
+                      Authorized Platform Governance
+                    </p>
+                    <h4 className="font-serif-display text-lg font-bold">
+                      Admin Legal, Safety &amp; Moderation Console
+                    </h4>
+                    <p className="text-xs text-stone-300 mt-0.5">
+                      Review moderation reports, verify copyright claims, process appeals, manage NDPA requests, and update policy versions.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('admin-governance')}
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-2"
+                >
+                  <span>Open Console</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
     </div>
   );

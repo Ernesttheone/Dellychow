@@ -25,6 +25,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
 import { SupportTicket, LiveSupportMessage } from '../types';
+import { formatMessageTimeLocal, formatMessageFullTooltip } from '../lib/chatTimestamp';
 
 interface SupportFAQModalProps {
   isOpen: boolean;
@@ -588,8 +589,11 @@ export const SupportFAQModal: React.FC<SupportFAQModalProps> = ({
                         {isMe ? 'You' : 'S'}
                       </div>
                       <div className={`space-y-1 ${isMe ? 'text-right' : 'text-left'}`}>
-                        <span className="text-[10px] text-stone-400 font-medium">
-                          {isMe ? 'You' : msg.senderName} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <span
+                          className="text-[10px] text-stone-400 font-medium inline-block"
+                          title={formatMessageFullTooltip(msg.createdAt)}
+                        >
+                          {isMe ? 'You' : msg.senderName} · {msg.isPendingTimestamp ? 'Sending…' : formatMessageTimeLocal(msg.createdAt)}
                         </span>
                         <div className={`p-3.5 rounded-2xl text-xs leading-relaxed ${
                           isMe
