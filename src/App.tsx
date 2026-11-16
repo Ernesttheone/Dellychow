@@ -302,13 +302,16 @@ function AppContent() {
         }
         return v;
       });
-      if (normalizedVideos.length > 0) {
+      const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (normalizedVideos.length > 0 || !isOffline) {
         setVideos(normalizedVideos);
       } else {
-        // Fallback to offline cached videos if network returned empty or user is offline
+        // Fallback to offline cached videos only when device is offline
         getWatchedVideosOffline().then((cached) => {
           if (cached && cached.length > 0) {
             setVideos(cached);
+          } else {
+            setVideos([]);
           }
         });
       }

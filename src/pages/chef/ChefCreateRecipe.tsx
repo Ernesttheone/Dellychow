@@ -19,6 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
 import { ASSET_IMAGES } from '../../assets/images';
 import { processDeviceImage } from '../../lib/imageUtils';
+import { uploadVideoToFirebaseStorage, validateVideoFile } from '../../lib/videoStorage';
 
 interface ChefCreateRecipeProps {
   recipeToEdit?: Recipe | null;
@@ -87,6 +88,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
   // 8. Cooking Video (optional video upload or video link)
   const [videoUrl, setVideoUrl] = useState(recipeToEdit?.videoUrl || '');
   const [videoFileName, setVideoFileName] = useState('');
+  const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -111,16 +114,19 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
     }
   };
 
-  // Handle local device video upload or preview
+  // Handle local device video selection (uploaded to Firebase Storage on save)
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('video/')) {
-      setErrorMsg('Please select a valid video file (MP4, WebM, MOV).');
+    const validation = validateVideoFile(file);
+    if (!validation.valid) {
+      setErrorMsg(validation.error || 'Please select a valid video file (MP4, WebM, MOV).');
       return;
     }
 
+    setErrorMsg('');
+    setSelectedVideoFile(file);
     setVideoFileName(file.name);
     // Create preview object URL for the local video
     const localVideoUrl = URL.createObjectURL(file);
@@ -192,6 +198,24 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
     const finalCategory = (customCategory.trim() || category || 'Rice').trim();
 
     try {
+      let finalVideoUrl = videoUrl.trim();
+
+      if (selectedVideoFile) {
+        setVideoUploadProgress(0);
+        const videoAssetId = recipeToEdit?.id || `recipe_vid_${Date.now()}`;
+        const uploadResult = await uploadVideoToFirebaseStorage(
+          selectedVideoFile,
+          selectedVideoFile.name,
+          videoAssetId,
+          currentUser.uid,
+          (pct) => setVideoUploadProgress(pct)
+        );
+        finalVideoUrl = uploadResult.url;
+        setVideoUploadProgress(null);
+      } else if (finalVideoUrl.startsWith('blob:')) {
+        throw new Error('Please re-select the video file so it can be uploaded to Firebase Storage.');
+      }
+
       if (isEditing && recipeToEdit) {
         await RecipeService.updateRecipe(recipeToEdit.id, {
           title: recipeName.trim(),
@@ -201,7 +225,7 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
           ingredients,
           steps,
           imageUrl: finalImageUrl,
-          videoUrl: videoUrl.trim() || undefined,
+          videoUrl: finalVideoUrl || undefined,
           status: targetStatus
         });
       } else {
@@ -218,7 +242,7 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
           ingredients,
           steps,
           imageUrl: finalImageUrl,
-          videoUrl: videoUrl.trim() || undefined,
+          videoUrl: finalVideoUrl || undefined,
           status: targetStatus,
           ratingAverage: 5.0,
           ratingCount: 1
@@ -232,6 +256,7 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
     } finally {
       setSubmitting(false);
       setSavingAction(null);
+      setVideoUploadProgress(null);
     }
   };
 
@@ -608,7 +633,11 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
               <input
                 type="url"
                 value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
+                onChange={(e) => {
+                  setSelectedVideoFile(null);
+                  setVideoFileName('');
+                  setVideoUrl(e.target.value);
+                }}
                 placeholder="https://www.youtube.com/watch?v=... or direct MP4 link"
                 className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
               />
@@ -618,6 +647,21 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
               <p className="text-xs text-amber-700 font-medium">
                 Selected video: {videoFileName}
               </p>
+            )}
+
+            {videoUploadProgress !== null && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-semibold text-amber-700">
+                  <span>Uploading video to Firebase Storage...</span>
+                  <span className="tabular-nums">{videoUploadProgress}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-600 transition-all duration-200"
+                    style={{ width: `${videoUploadProgress}%` }}
+                  />
+                </div>
+              </div>
             )}
 
             {/* Video Preview */}
@@ -640,6 +684,10 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    if (videoUrl.startsWith('blob:')) {
+                      URL.revokeObjectURL(videoUrl);
+                    }
+                    setSelectedVideoFile(null);
                     setVideoUrl('');
                     setVideoFileName('');
                   }}

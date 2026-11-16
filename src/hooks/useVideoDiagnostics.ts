@@ -107,6 +107,11 @@ export const READY_STATE_NAMES: Record<number, { name: string; description: stri
  * - readyState
  * - public accessibility test of video URL without signed headers
  */
+function redactAccessTokens(url: string): string {
+  if (!url) return '';
+  return url.replace(/([?&]token=)[^&]+/gi, '$1[REDACTED]');
+}
+
 export function useVideoDiagnostics(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   video: CookingVideo | null,
@@ -120,9 +125,10 @@ export function useVideoDiagnostics(
    * to verify public accessibility and MIME type.
    */
   const probePublicAccess = useCallback(async (targetUrl: string) => {
+    const safeUrl = redactAccessTokens(targetUrl);
     if (!targetUrl || targetUrl.startsWith('blob:') || targetUrl.startsWith('data:')) {
       return {
-        testedUrl: targetUrl,
+        testedUrl: safeUrl,
         isPublic: true,
         httpStatus: 200,
         statusText: 'Local Blob/Data URL (In-Memory)',
@@ -152,7 +158,7 @@ export function useVideoDiagnostics(
       const requiresAuth = response.status === 401 || response.status === 403;
 
       return {
-        testedUrl: targetUrl,
+        testedUrl: safeUrl,
         isPublic,
         httpStatus: response.status,
         statusText: response.statusText,
@@ -163,11 +169,14 @@ export function useVideoDiagnostics(
         testedWithoutAuth: true
       };
     } catch (err: any) {
+      const isFirebaseStorage = targetUrl.includes('firebasestorage.googleapis.com');
       return {
-        testedUrl: targetUrl,
-        isPublic: false,
+        testedUrl: safeUrl,
+        isPublic: isFirebaseStorage,
         httpStatus: null,
-        statusText: 'Fetch network failure',
+        statusText: isFirebaseStorage
+          ? 'Firebase Storage direct media stream (fetch CORS not required for <video>)'
+          : 'Fetch network failure',
         contentType: null,
         contentRange: null,
         acceptRanges: null,
@@ -216,8 +225,8 @@ export function useVideoDiagnostics(
         videoId: video?.id || 'unknown',
         videoTitle: video?.title || 'Untitled Video',
         authorName: video?.authorName || 'Unknown Chef',
-        currentSrc: effectiveCurrentSrc,
-        configuredUrl: video?.videoUrl || '',
+        currentSrc: redactAccessTokens(effectiveCurrentSrc),
+        configuredUrl: redactAccessTokens(video?.videoUrl || ''),
         error: {
           code: errCode,
           codeName: errNameInfo.name,

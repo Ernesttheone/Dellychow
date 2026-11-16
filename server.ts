@@ -224,6 +224,27 @@ async function startServer() {
     });
   });
 
+  // Delete stored video file from server disk
+  app.delete('/api/videos/stream/:filename', (req, res) => {
+    const filePath = findVideoFilePath(req.params.filename);
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err: any) {
+        console.warn('[Video Storage] Could not delete video file:', err?.message || err);
+      }
+    }
+    const distPath = path.resolve(__dirname, 'dist/uploads/videos', path.basename(req.params.filename));
+    if (fs.existsSync(distPath)) {
+      try {
+        fs.unlinkSync(distPath);
+      } catch {
+        // ignore
+      }
+    }
+    return res.status(200).json({ success: true });
+  });
+
   // Serve static uploads
   app.use('/uploads/videos', express.static(UPLOADS_DIR));
   app.use('/public/uploads/videos', express.static(UPLOADS_DIR));
@@ -283,6 +304,14 @@ async function startServer() {
       return res.status(200).send(html);
     }
 
+    next();
+  });
+
+  // Ensure browsers never serve a stale Service Worker script from HTTP cache
+  app.get('/sw.js', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     next();
   });
 

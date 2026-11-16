@@ -1,18 +1,22 @@
 /**
- * Deli Chow - Rebuilt Universal Video System Storage & Stream Service
+ * Deli Chow - Universal Video System Storage & Stream Service (Firebase Storage)
  * 
  * Strict architectural rules:
  * 1. User uploaded videos are NEVER replaced or substituted by AI-generated videos or default streams.
- * 2. Uploads are streamed directly to persistent disk (/public/uploads/videos/) via /api/videos/upload.
- * 3. Video records store and stream exact public URLs (/api/videos/stream/:filename).
+ * 2. Uploads are stored persistently in Firebase Cloud Storage under videos/{authorId}/{videoId}{ext}.
+ * 3. Video records store permanent Firebase Storage HTTPS download URLs with native byte-range support.
  * 4. Full support for MP4, WebM, and MOV codecs across iOS, Android, macOS, Windows, and Linux.
  */
+
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { storage } from './firebase';
 
 export interface VideoUploadResult {
   success: boolean;
   id: string;
   filename: string;
   url: string;
+  storagePath?: string;
   size: number;
 }
 
@@ -63,63 +67,239 @@ export function validateVideoFile(file: File): VideoValidationResult {
   return { valid: true, detectedFormat };
 }
 
-/**
- * Direct binary upload to the server streaming repository with live percentage progress tracking.
- */
-export function uploadVideoToServer(
+function getSafeVideoExtension(filename: string, mimeType: string): { ext: string; contentType: string } {
+  const lowerName = (filename || '').toLowerCase();
+  const lowerType = (mimeType || '').toLowerCase();
+
+  if (lowerName.endsWith('.webm') || lowerType.includes('webm')) {
+    return { ext: '.webm', contentType: 'video/webm' };
+  }
+  if (lowerName.endsWith('.mov') || lowerType.includes('quicktime')) {
+    return { ext: '.mov', contentType: 'video/quicktime' };
+  }
+  if (lowerName.endsWith('.m4v') || lowerType.includes('m4v')) {
+    return { ext: '.m4v', contentType: 'video/x-m4v' };
+  }
+  return { ext: '.mp4', contentType: 'video/mp4' };
+}
+
+let cachedBucketReady: boolean | null = null;
+
+async function isFirebaseStorageBucketAvailable(): Promise<boolean> {
+  if (!storage) return false;
+  if (cachedBucketReady !== null) return cachedBucketReady;
+
+  const bucket = storage.app?.options?.storageBucket;
+  if (!bucket) {
+    cachedBucketReady = false;
+    return false;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o?maxResults=1`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    // 404 specifically indicates the Storage bucket does not exist / is not activated yet.
+    // 200, 401, or 403 indicates the bucket exists and is active.
+    cachedBucketReady = res.status !== 404;
+    return cachedBucketReady;
+  } catch {
+    // Do not permanently cache transient network timeouts
+    return true;
+  }
+}
+
+function uploadVideoToBackendServer(
   blob: Blob,
   filename: string,
   videoId: string,
   onProgress?: (percent: number) => void
 ): Promise<VideoUploadResult> {
   return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/videos/upload');
-    xhr.setRequestHeader('x-filename', filename);
-    xhr.setRequestHeader('x-video-id', videoId);
-    xhr.setRequestHeader('Content-Type', blob.type || 'video/mp4');
+    const cleanVideoId = (videoId || `vid_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 96);
+    const { ext, contentType } = getSafeVideoExtension(filename, blob.type);
+    const safeBase = (filename || `${cleanVideoId}${ext}`)
+      .replace(/[^\x20-\x7E]/g, '_')
+      .slice(0, 120) || `${cleanVideoId}${ext}`;
 
-    if (xhr.upload && onProgress) {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && event.total > 0) {
-          const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
-          onProgress(percent);
-        }
-      };
-    }
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/videos/upload', true);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.setRequestHeader('x-filename', safeBase);
+    xhr.setRequestHeader('x-video-id', cleanVideoId);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0 && onProgress) {
+        const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+        onProgress(percent);
+      }
+    };
 
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          if (onProgress) onProgress(100);
-          resolve(response);
-        } catch {
-          const streamUrl = `/api/videos/stream/${videoId}.mp4`;
+      try {
+        const data = JSON.parse(xhr.responseText || '{}');
+        if (xhr.status >= 200 && xhr.status < 300 && data?.success && data?.url) {
           if (onProgress) onProgress(100);
           resolve({
             success: true,
-            id: videoId,
-            filename: `${videoId}.mp4`,
-            url: streamUrl,
-            size: blob.size
+            id: data.id || cleanVideoId,
+            filename: data.filename || `${cleanVideoId}${ext}`,
+            url: data.url,
+            size: data.size || blob.size
           });
+        } else {
+          reject(new Error(data?.error || `Video upload failed with server status ${xhr.status}.`));
         }
-      } else {
-        reject(new Error(`Server rejected video upload with status HTTP ${xhr.status}. Please check your connection.`));
+      } catch {
+        reject(new Error(`Video upload failed with server status ${xhr.status}.`));
       }
     };
 
     xhr.onerror = () => {
-      reject(new Error('Network error during video transfer. Please verify server connection.'));
-    };
-
-    xhr.onabort = () => {
-      reject(new Error('Video upload cancelled.'));
+      reject(new Error('Network error while uploading video to server. Please check your connection and try again.'));
     };
 
     xhr.send(blob);
   });
+}
+
+/**
+ * Direct resumable upload to Firebase Cloud Storage with live percentage progress tracking,
+ * falling back seamlessly to the backend streaming server if the Firebase Storage bucket
+ * has not been initialized yet or rejects uploads.
+ */
+export async function uploadVideoToFirebaseStorage(
+  blob: Blob,
+  filename: string,
+  videoId: string,
+  authorId: string,
+  onProgress?: (percent: number) => void
+): Promise<VideoUploadResult> {
+  const bucketAvailable = await isFirebaseStorageBucketAvailable();
+  if (!bucketAvailable || !storage) {
+    return uploadVideoToBackendServer(blob, filename, videoId, onProgress);
+  }
+
+  return new Promise((resolve, reject) => {
+    if (!storage) {
+      uploadVideoToBackendServer(blob, filename, videoId, onProgress).then(resolve).catch(reject);
+      return;
+    }
+
+    const cleanAuthorId = (authorId || 'chef').replace(/[^a-zA-Z0-9_-]/g, '');
+    const cleanVideoId = (videoId || `vid_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 96);
+    const { ext, contentType } = getSafeVideoExtension(filename, blob.type);
+    const safeFilename = `${cleanVideoId}${ext}`;
+    const storagePath = `videos/${cleanAuthorId}/${safeFilename}`;
+
+    const storageRef = ref(storage, storagePath);
+    const uploadTask = uploadBytesResumable(storageRef, blob, {
+      contentType,
+      cacheControl: 'public, max-age=31536000',
+      customMetadata: {
+        originalFilename: filename || safeFilename,
+        videoId: cleanVideoId,
+        authorId: cleanAuthorId
+      }
+    });
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        if (snapshot.totalBytes > 0 && onProgress) {
+          const percent = Math.min(99, Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+          onProgress(percent);
+        }
+      },
+      (error: any) => {
+        console.warn('[Firebase Storage] Upload unavailable, falling back to server upload:', error?.code || error?.message);
+        const code = error?.code || '';
+        if (code === 'storage/canceled') {
+          reject(new Error('Video upload was cancelled.'));
+          return;
+        }
+        if (
+          code === 'storage/unknown' ||
+          code === 'storage/bucket-not-found' ||
+          code === 'storage/project-not-found' ||
+          code === 'storage/unauthorized'
+        ) {
+          if (code !== 'storage/unauthorized') {
+            cachedBucketReady = false;
+          }
+          uploadVideoToBackendServer(blob, filename, videoId, onProgress).then(resolve).catch(reject);
+          return;
+        }
+        reject(new Error(error?.message || 'Failed to upload video. Please check your connection and try again.'));
+      },
+      async () => {
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          if (onProgress) onProgress(100);
+          resolve({
+            success: true,
+            id: cleanVideoId,
+            filename: safeFilename,
+            url: downloadUrl,
+            storagePath,
+            size: blob.size
+          });
+        } catch (err: any) {
+          reject(new Error(err?.message || 'Uploaded to Firebase Storage, but failed to retrieve download URL.'));
+        }
+      }
+    );
+  });
+}
+
+/**
+ * Delete a video file from Firebase Storage or backend upload directory.
+ */
+export async function deleteVideoFromFirebaseStorage(videoUrl?: string): Promise<void> {
+  if (!videoUrl) return;
+
+  if (videoUrl.startsWith('/api/videos/stream/')) {
+    try {
+      await fetch(videoUrl, { method: 'DELETE' });
+    } catch {
+      // Ignore cleanup failures
+    }
+    return;
+  }
+
+  if (
+    !storage ||
+    (!videoUrl.includes('firebasestorage.googleapis.com') &&
+      !videoUrl.includes('firebasestorage.app') &&
+      !videoUrl.startsWith('gs://'))
+  ) {
+    return;
+  }
+  try {
+    const fileRef = ref(storage, videoUrl);
+    await deleteObject(fileRef);
+  } catch (err: any) {
+    if (err?.code !== 'storage/object-not-found') {
+      console.warn('[Firebase Storage] Could not delete video file:', err?.message || err);
+    }
+  }
+}
+
+/**
+ * Backwards-compatible wrapper that routes uploads to Firebase Storage.
+ */
+export function uploadVideoToServer(
+  blob: Blob,
+  filename: string,
+  videoId: string,
+  onProgress?: (percent: number) => void,
+  authorId: string = 'chef'
+): Promise<VideoUploadResult> {
+  return uploadVideoToFirebaseStorage(blob, filename, videoId, authorId, onProgress);
 }
 
 /**

@@ -20,6 +20,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..800;1,9..40,300..800&family=Playfair+Display:ital,wght@0,400..800;1,400..800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      (function () {
+        try {
+          if ('caches' in window) {
+            caches.delete('dellychow-static-v1').catch(function () {});
+          }
+          if ('serviceWorker' in navigator) {
+            var hadController = !!navigator.serviceWorker.controller;
+            navigator.serviceWorker.addEventListener('controllerchange', function () {
+              if (hadController && !sessionStorage.getItem('delichow_sw_v2_reloaded')) {
+                sessionStorage.setItem('delichow_sw_v2_reloaded', '1');
+                window.location.reload();
+              }
+            });
+            navigator.serviceWorker
+              .register('/sw.js', { scope: '/', updateViaCache: 'none' })
+              .then(function (reg) {
+                reg.update().catch(function () {});
+              })
+              .catch(function () {});
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4459278066665892"
      crossorigin="anonymous"></script>
   </head>

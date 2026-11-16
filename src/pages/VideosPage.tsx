@@ -38,8 +38,8 @@ export const VideosPage: React.FC<VideosPageProps> = ({
     });
   }, []);
 
-  const sourceVideos = videos.length > 0 ? videos : cachedVideos;
-  const isShowingOfflineCache = videos.length === 0 && cachedVideos.length > 0;
+  const sourceVideos = !isOnline && videos.length === 0 ? cachedVideos : videos;
+  const isShowingOfflineCache = !isOnline && videos.length === 0 && cachedVideos.length > 0;
 
   // For unauthenticated guests: strictly 3 selected tutorial videos
   const displayVideos = useMemo(() => {

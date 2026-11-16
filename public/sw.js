@@ -1,16 +1,14 @@
 // DellyChow Progressive Web App Service Worker with Cache API Support
-const CACHE_STATIC_NAME = 'dellychow-static-v1';
+const CACHE_STATIC_NAME = 'dellychow-static-v2';
 const CACHE_THUMBNAILS_NAME = 'dellychow-thumbnails-v1';
 const CACHE_METADATA_NAME = 'dellychow-video-metadata-v1';
 
 const STATIC_PRECACHE_URLS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon.svg'
 ];
 
-// 1. Install Event: Precache Core App Shell
+// 1. Install Event: Precache Static Shell Assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_STATIC_NAME).then((cache) => {
@@ -21,7 +19,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// 2. Activate Event: Clean up outdated caches
+// 2. Activate Event: Clean up outdated caches (including dellychow-static-v1)
 self.addEventListener('activate', (event) => {
   const currentCaches = [CACHE_STATIC_NAME, CACHE_THUMBNAILS_NAME, CACHE_METADATA_NAME];
   event.waitUntil(
@@ -37,7 +35,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 3. Fetch Event: Intelligent routing and Cache API handling
+// 3. Fetch Event: Network-first for app scripts/HTML, never cache Vite dev modules
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -47,8 +45,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip streaming video binary byte ranges (these are streamed live via Range headers)
-  if (url.pathname.startsWith('/api/videos/stream/')) {
+  // Skip streaming video binary ranges, API endpoints, and Vite dev server / source modules
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname === '/sw.js' ||
+    url.search.includes('v=') ||
+    url.search.includes('t=') ||
+    url.search.includes('import')
+  ) {
     return;
   }
 
@@ -64,7 +71,6 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.open(CACHE_THUMBNAILS_NAME).then((cache) => {
         return cache.match(request).then((cachedResponse) => {
-          // Fetch fresh copy from network and update cache (Stale-While-Revalidate)
           const fetchPromise = fetch(request)
             .then((networkResponse) => {
               if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
@@ -72,10 +78,7 @@ self.addEventListener('fetch', (event) => {
               }
               return networkResponse;
             })
-            .catch(() => {
-              // Network failed (offline); fallback to cached response if available
-              return cachedResponse;
-            });
+            .catch(() => cachedResponse);
 
           return cachedResponse || fetchPromise;
         });
@@ -84,7 +87,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle HTML Page Navigation
+  // Handle HTML Page Navigation (Network-First)
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(() => {
@@ -94,31 +97,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle App Scripts & Styles
+  // Handle Production App Assets (Network-First so fresh updates always apply immediately)
   if (url.origin === location.origin) {
     event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) {
-          // Fetch in background to update
-          fetch(request).then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_STATIC_NAME).then((cache) => cache.put(request, networkResponse));
-            }
-          }).catch(() => {});
-          return cachedResponse;
-        }
-
-        return fetch(request).then((networkResponse) => {
+      fetch(request)
+        .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_STATIC_NAME).then((cache) => cache.put(request, clone));
           }
           return networkResponse;
-        }).catch(() => {
-          // Offline fallback
-          return caches.match(request);
-        });
-      })
+        })
+        .catch(() => caches.match(request))
     );
   }
 });

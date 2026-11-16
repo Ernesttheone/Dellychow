@@ -169,3 +169,49 @@ export async function isThumbnailCachedOffline(thumbnailUrl: string): Promise<bo
     return false;
   }
 }
+
+/**
+ * Removes a single deleted video from both localStorage index and Cache API metadata.
+ */
+export async function removeWatchedVideoOffline(videoId: string): Promise<void> {
+  if (!videoId || typeof window === 'undefined') return;
+  try {
+    const existingRaw = localStorage.getItem(INDEX_STORAGE_KEY);
+    if (existingRaw) {
+      const list: CookingVideo[] = JSON.parse(existingRaw);
+      const filtered = list.filter((v) => v && v.id !== videoId);
+      localStorage.setItem(INDEX_STORAGE_KEY, JSON.stringify(filtered));
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  if ('caches' in window) {
+    try {
+      const metaCache = await window.caches.open(CACHE_METADATA_NAME);
+      await metaCache.delete(`/_offline_metadata/videos/${videoId}`);
+    } catch {
+      // ignore cache errors
+    }
+  }
+}
+
+/**
+ * Clears all offline watched video metadata entries.
+ */
+export async function clearWatchedVideosOffline(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(INDEX_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  if ('caches' in window) {
+    try {
+      await window.caches.delete(CACHE_METADATA_NAME);
+    } catch {
+      // ignore
+    }
+  }
+}
+

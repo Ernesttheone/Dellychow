@@ -38,7 +38,7 @@ import { Recipe, CookingVideo } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
 import { ASSET_IMAGES } from '../../assets/images';
-import { extractVideoMetadataAndThumbnail, uploadVideoToServer, validateVideoFile } from '../../lib/videoStorage';
+import { extractVideoMetadataAndThumbnail, uploadVideoToFirebaseStorage, validateVideoFile } from '../../lib/videoStorage';
 
 interface ChefUploadVideoProps {
   recipes: Recipe[];
@@ -624,14 +624,14 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         const ext = videoBlob.type.includes('webm') ? '.webm' : videoBlob.type.includes('mov') ? '.mov' : '.mp4';
         const filename = videoFileName || `video_${newVideoId}${ext}`;
 
-        setProgressStatusText('Uploading video masterclass to server...');
-        const uploadResult = await uploadVideoToServer(videoBlob, filename, newVideoId, (pct) => {
+        setProgressStatusText('Uploading video masterclass to Firebase Storage...');
+        const uploadResult = await uploadVideoToFirebaseStorage(videoBlob, filename, newVideoId, currentUser.uid, (pct) => {
           setUploadProgress(15 + Math.round(pct * 0.75));
-          setProgressStatusText(`Streaming video to server (${pct}%)...`);
+          setProgressStatusText(`Uploading video to Firebase Storage (${pct}%)...`);
         });
 
         if (!uploadResult?.url) {
-          throw new Error('Video upload failed: server did not return a valid stream URL.');
+          throw new Error('Video upload failed: Firebase Storage did not return a valid download URL.');
         }
 
         finalPublicUrl = uploadResult.url;

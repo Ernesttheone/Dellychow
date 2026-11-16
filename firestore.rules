@@ -130,7 +130,7 @@ service cloud.firestore {
           || (existing().authorId == request.auth.uid && incoming().authorId == existing().authorId)
           || (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'viewCount']))
         );
-      allow delete: if isSignedIn() && (isAdmin() || existing().authorId == request.auth.uid);
+      allow delete: if isSignedIn() && isValidId(videoId) && (isAdmin() || (resource != null && existing().authorId == request.auth.uid));
 
       // Video Comments
       match /comments/{commentId} {

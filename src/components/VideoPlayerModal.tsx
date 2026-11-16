@@ -180,9 +180,12 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   const [unlockedInSession, setUnlockedInSession] = useState<boolean>(false);
   // Apply 10-second preview countdown to ANY user (both chef and food lover)
   const isVipProtected = isVipVideo && !unlockedInSession;
+  const isGuestFreePreview = !currentUser && !isVipVideo;
   const [hasStartedPlay, setHasStartedPlay] = useState<boolean>(false);
   const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number>(10);
   const [previewEnded, setPreviewEnded] = useState<boolean>(false);
+  const [guestPreviewSecondsLeft, setGuestPreviewSecondsLeft] = useState<number>(10);
+  const [guestPreviewEnded, setGuestPreviewEnded] = useState<boolean>(false);
 
   // Comments State
   const [comments, setComments] = useState<VideoComment[]>([]);
@@ -213,6 +216,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       setHasStartedPlay(false);
       setPreviewSecondsLeft(10);
       setPreviewEnded(false);
+      setGuestPreviewSecondsLeft(10);
+      setGuestPreviewEnded(false);
       setVideoLoading(true);
       setVideoError(null);
       setHasReachedPlaying(false);
@@ -275,9 +280,10 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
             setVideoLoading(false);
             setNetworkStatusText('Stream connected (HTTP 200/206)');
 
-            // Guess MIME type
-            if (resolved.endsWith('.webm')) setDetectedMimeType('video/webm');
-            else if (resolved.endsWith('.mov')) setDetectedMimeType('video/quicktime');
+            // Guess MIME type safely ignoring query params (e.g., ?alt=media&token=...)
+            const urlPath = resolved.split('?')[0].toLowerCase();
+            if (urlPath.endsWith('.webm') || urlPath.includes('.webm')) setDetectedMimeType('video/webm');
+            else if (urlPath.endsWith('.mov') || urlPath.includes('.mov')) setDetectedMimeType('video/quicktime');
             else setDetectedMimeType('video/mp4');
           } else {
             setPlayableUrl('');
@@ -324,6 +330,26 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     return () => unsub();
   }, [video?.id]);
 
+  const triggerGuestAuthGate = () => {
+    if (videoElementRef.current && !videoElementRef.current.paused) {
+      videoElementRef.current.pause();
+    }
+    setIsPlaying(false);
+    setGuestPreviewEnded(true);
+    setPendingAction({ type: 'watch_video', video });
+    if (onOpenAuthModal) {
+      onOpenAuthModal('signup');
+    }
+  };
+
+  // Unlock free video playback immediately if visitor signs in / signs up
+  useEffect(() => {
+    if (currentUser && guestPreviewEnded) {
+      setGuestPreviewEnded(false);
+      setGuestPreviewSecondsLeft(10);
+    }
+  }, [currentUser, guestPreviewEnded]);
+
   // 10-Second VIP Preview Timer (Starts after any user: chef and food lover clicks play)
   useEffect(() => {
     if (!video || !isVipProtected || previewEnded) return;
@@ -347,9 +373,43 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     return () => window.clearInterval(interval);
   }, [video?.id, isVipProtected, hasStartedPlay, isPlaying, previewEnded]);
 
+  // 10-Second Guest Free Video Timer (Website visitors can watch max 10s of any free video before sign-in/up modal pops up)
+  useEffect(() => {
+    if (!video || !isGuestFreePreview || guestPreviewEnded) return;
+
+    const videoUrlSafe = video.videoUrl || '';
+    const isEmbed = videoUrlSafe.includes('youtube.com') || videoUrlSafe.includes('youtu.be') || videoUrlSafe.includes('vimeo.com');
+
+    if (isEmbed) {
+      const embedTimer = window.setTimeout(() => {
+        triggerGuestAuthGate();
+      }, 10000);
+      return () => window.clearTimeout(embedTimer);
+    }
+
+    if (!hasStartedPlay || !isPlaying) return;
+
+    const interval = window.setInterval(() => {
+      setGuestPreviewSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          triggerGuestAuthGate();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [video?.id, isGuestFreePreview, hasStartedPlay, isPlaying, guestPreviewEnded]);
+
   // Video Controls Handlers
   const togglePlayPause = () => {
     if (previewEnded) return;
+    if (guestPreviewEnded && isGuestFreePreview) {
+      triggerGuestAuthGate();
+      return;
+    }
     if (!videoElementRef.current) return;
 
     if (videoElementRef.current.paused || videoElementRef.current.ended) {
@@ -394,8 +454,16 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
+        if (guestPreviewEnded && isGuestFreePreview) {
+          triggerGuestAuthGate();
+          return;
+        }
         if (videoElementRef.current) {
           const newTime = Math.min(duration || 9999, videoElementRef.current.currentTime + 5);
+          if (isGuestFreePreview && newTime >= 10) {
+            triggerGuestAuthGate();
+            return;
+          }
           videoElementRef.current.currentTime = newTime;
           setCurrentTime(newTime);
         }
@@ -412,7 +480,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, volume, isMuted, duration, previewEnded]);
+  }, [isPlaying, volume, isMuted, duration, previewEnded, guestPreviewEnded, isGuestFreePreview]);
 
   const handleTimeUpdate = () => {
     if (!videoElementRef.current) return;
@@ -423,6 +491,11 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       setPreviewEnded(true);
       videoElementRef.current.pause();
       setIsPlaying(false);
+    }
+
+    // Safety check: enforce 10-second preview limit for unauthenticated website visitors on free videos
+    if (isGuestFreePreview && hasStartedPlay && !guestPreviewEnded && (guestPreviewSecondsLeft <= 0 || videoElementRef.current.currentTime >= 10)) {
+      triggerGuestAuthGate();
     }
 
     // Update buffered range
@@ -440,12 +513,16 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressBarRef.current || !videoElementRef.current || previewEnded) return;
+    if (!progressBarRef.current || !videoElementRef.current || previewEnded || guestPreviewEnded) return;
     const rect = progressBarRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const width = rect.width;
     const seekPercentage = Math.max(0, Math.min(1, clickX / width));
     const targetTime = seekPercentage * (videoElementRef.current.duration || duration);
+    if (isGuestFreePreview && targetTime >= 10) {
+      triggerGuestAuthGate();
+      return;
+    }
     videoElementRef.current.currentTime = targetTime;
     setCurrentTime(targetTime);
   };
@@ -932,6 +1009,49 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                     </button>
                   </div>
                 </div>
+              ) : guestPreviewEnded && isGuestFreePreview ? (
+                /* Visitor 10-Second Free Preview Ended Lock Overlay */
+                <div className="absolute inset-0 z-30 bg-stone-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center space-y-4 animate-in fade-in">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-600/20 text-amber-500 ring-2 ring-amber-500/30 flex items-center justify-center shadow-lg">
+                    <Lock className="w-8 h-8" />
+                  </div>
+
+                  <div className="max-w-md space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center justify-center gap-1.5">
+                      <Sparkles className="w-4 h-4" />
+                      Free Account Required
+                    </span>
+                    <h4 className="font-serif-display text-2xl font-bold text-white">
+                      Create an Account to Keep Watching
+                    </h4>
+                    <p className="text-xs text-stone-300 leading-relaxed">
+                      You&apos;ve reached the 10-second visitor preview limit. Log in or sign up for a free DellyChow account to watch the full cooking video.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingAction({ type: 'watch_video', video });
+                        if (onOpenAuthModal) onOpenAuthModal('signup');
+                      }}
+                      className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                    >
+                      <span>Sign Up Free</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingAction({ type: 'watch_video', video });
+                        if (onOpenAuthModal) onOpenAuthModal('login');
+                      }}
+                      className="px-5 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                    >
+                      Log In
+                    </button>
+                  </div>
+                </div>
               ) : isExternalEmbed ? (
                 <iframe
                   src={getEmbedIframeUrl(video.videoUrl)}
@@ -992,7 +1112,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                       poster={video.thumbnailUrl}
                       playsInline
                       preload="metadata"
-                      crossOrigin="anonymous"
+                      crossOrigin={playableUrl.startsWith('/') ? 'anonymous' : undefined}
                       onClick={togglePlayPause}
                       onTimeUpdate={handleTimeUpdate}
                       onLoadedMetadata={handleLoadedMetadata}
@@ -1034,26 +1154,28 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                         const errCode = mediaErr ? mediaErr.code : 4;
                         const errMsg = mediaErr?.message || 'Video stream could not be loaded.';
 
-                        // Verify if stream file exists or was deleted
-                        const streamExists = await checkServerStreamExists(playableUrl);
-                        if (!streamExists) {
-                          setVideoError('This cooking video file was deleted or removed from the server.');
-                          setNetworkStatusText('Video file not found on server (404)');
-                        } else {
-                          setVideoError(`Playback notice: Video stream could not be decoded (${errMsg || 'code ' + errCode}).`);
-                          setNetworkStatusText(`Playback issue (${errCode})`);
+                        // Verify if local stream file exists or was deleted
+                        if (playableUrl.startsWith('/api/videos/stream/')) {
+                          const streamExists = await checkServerStreamExists(playableUrl);
+                          if (!streamExists) {
+                            setVideoError('This cooking video file was deleted or removed from the server.');
+                            setNetworkStatusText('Video file not found on server (404)');
+                            logDiagnosticError(errMsg);
+                            return;
+                          }
                         }
+
+                        setVideoError(`Playback notice: Video stream could not be decoded (${errMsg || 'code ' + errCode}).`);
+                        setNetworkStatusText(`Playback issue (${errCode})`);
 
                         logDiagnosticError(errMsg);
                       }}
                       className="w-full h-full object-contain cursor-pointer"
-                    >
-                      <source src={playableUrl} type={detectedMimeType} />
-                    </video>
+                    />
                   ) : null}
 
                   {/* Large Center Play Button on Pause/Hover */}
-                  {!isPlaying && !videoLoading && !videoError && !previewEnded && (
+                  {!isPlaying && !videoLoading && !videoError && !previewEnded && !guestPreviewEnded && (
                     <button
                       type="button"
                       onClick={togglePlayPause}

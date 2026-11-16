@@ -14,6 +14,8 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { deleteVideoFromFirebaseStorage } from '../lib/videoStorage';
+import { removeWatchedVideoOffline, clearWatchedVideosOffline } from '../lib/offlineVideoCache';
 import {
   getAuthoritativeServerTime,
   normalizeToUtcIso,
@@ -229,7 +231,17 @@ export const RecipeService = {
   async deleteVideo(videoId: string): Promise<void> {
     const docRef = doc(db, 'videos', videoId);
     try {
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) {
+        await removeWatchedVideoOffline(videoId);
+        return;
+      }
+      const videoUrl = (snap.data() as CookingVideo).videoUrl;
       await deleteDoc(docRef);
+      if (videoUrl) {
+        await deleteVideoFromFirebaseStorage(videoUrl);
+      }
+      await removeWatchedVideoOffline(videoId);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `videos/${videoId}`);
     }
@@ -761,20 +773,25 @@ export const RecipeService = {
       console.warn("LocalStorage full, backup retained in memory:", e);
     }
 
-    // 1. Delete all video documents from Firestore database
+    // 1. Delete all video documents from Firestore database and Firebase Storage
     let deletedCount = 0;
     for (const docSnap of snap.docs) {
       try {
+        const data = docSnap.data() as CookingVideo;
         await deleteDoc(doc(db, 'videos', docSnap.id));
+        if (data?.videoUrl) {
+          await deleteVideoFromFirebaseStorage(data.videoUrl);
+        }
         deletedCount++;
       } catch (err) {
         console.error(`Error deleting video record ${docSnap.id}:`, err);
       }
     }
 
-    // 2. Clear physical video Blobs from IndexedDB storage
+    // 2. Clear physical video Blobs and offline metadata caches
     try {
       await clearAllStoredVideos();
+      await clearWatchedVideosOffline();
     } catch (err) {
       console.error("Error clearing IndexedDB videos store:", err);
     }
