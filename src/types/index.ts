@@ -118,6 +118,7 @@ export interface CookingVideo {
   viewCount?: number;
   likesCount?: number;
   nutritionInfo?: NutritionalInfo;
+  status?: 'published' | 'draft';
   createdAt: string;
   updatedAt?: string;
 }
@@ -606,4 +607,174 @@ export interface PolicyVersionMetadata {
   summaryOfChanges?: string;
 }
 
+// ============================================================================
+// Video & Microphone Studio Types
+// ============================================================================
+
+export type VideoTransitionType = 'none' | 'fade' | 'crossfade' | 'slide' | 'zoom';
+export type CropAspectRatio = 'original' | '16:9' | '9:16' | '1:1' | '4:5';
+export type VideoRotationDeg = 0 | 90 | 180 | 270;
+export type VideoFilterPreset =
+  | 'none'
+  | 'warm_kitchen'
+  | 'crisp_studio'
+  | 'vintage_film'
+  | 'high_contrast'
+  | 'noir_bw'
+  | 'golden_hour'
+  | 'cool_fresh';
+
+export type ZoomEffectType = 'none' | 'slow_zoom_in' | 'slow_zoom_out' | 'pulse';
+export type AnimatedOverlayPreset =
+  | 'none'
+  | 'warm_vignette'
+  | 'chef_frame'
+  | 'golden_border'
+  | 'cinematic_bars';
+
+export interface VideoClipItem {
+  id: string;
+  name: string;
+  durationSec: number;
+  trimStartSec: number;
+  trimEndSec: number;
+  transition: VideoTransitionType;
+  volume: number; // 0 to 2
+  muted: boolean;
+  sourceType: 'recorded' | 'uploaded' | 'url' | 'freeze';
+  serverUrl?: string;
+  mimeType?: string;
+  hasOriginalAudio?: boolean;
+  // Multi-track & transform
+  trackIndex?: 0 | 1; // 0 = Main Video Track, 1 = Picture-in-Picture / Overlay Track
+  startOffsetSec?: number; // Used for Track 1 (PiP) positioning
+  speed?: number; // 0.25 to 3.0
+  reversed?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
+  rotation?: VideoRotationDeg;
+  // Freeze frame support
+  isFreezeFrame?: boolean;
+  freezeSourceTimeSec?: number;
+  posterDataUrl?: string;
+  // Color grading & effects
+  filterPreset?: VideoFilterPreset;
+  brightness?: number; // -100 to 100
+  contrast?: number; // -100 to 100
+  saturation?: number; // -100 to 100
+  exposure?: number; // -100 to 100
+  blur?: number; // 0 to 20 px
+  zoom?: number; // 1.0 to 2.5
+  zoomEffect?: ZoomEffectType;
+  glitch?: number; // 0 to 100
+  // Background & Chroma Key & PiP
+  bgColor?: string;
+  chromaKeyEnabled?: boolean;
+  chromaKeyColor?: string; // hex e.g. '#00ff00'
+  chromaKeySimilarity?: number; // 0.05 to 0.5
+  pipX?: number; // percentage 0..100
+  pipY?: number; // percentage 0..100
+  pipScale?: number; // 0.15..0.85
+  audioDetached?: boolean;
+}
+
+export interface AudioTrackItem {
+  id: string;
+  name: string;
+  trackType: 'voiceover' | 'music' | 'extracted';
+  durationSec: number;
+  startOffsetSec: number;
+  trimStartSec: number;
+  trimEndSec: number;
+  volume: number; // 0 to 2
+  muted: boolean;
+  fadeInSec?: number; // 0 to 5
+  fadeOutSec?: number; // 0 to 5
+  noiseReduction?: boolean;
+  sourceClipId?: string;
+  presetId?: string;
+  serverUrl?: string;
+  mimeType?: string;
+}
+
+export type TextOverlayKind = 'text' | 'title' | 'lower_third' | 'caption';
+export type TextAnimationType = 'none' | 'fade' | 'slide_up' | 'pop' | 'typewriter';
+export type TextFontFamily =
+  | 'Plus Jakarta Sans'
+  | 'Playfair Display'
+  | 'DM Sans'
+  | 'Georgia'
+  | 'Courier New';
+
+export interface TextOverlayItem {
+  id: string;
+  kind?: TextOverlayKind;
+  text: string;
+  subtitle?: string; // Used for lower thirds / name tags
+  startSec: number;
+  endSec: number;
+  position: 'top' | 'middle' | 'bottom' | 'custom';
+  xPercent?: number; // 5..95
+  yPercent?: number; // 5..95
+  color: string;
+  bgColor?: string;
+  fontSize?: 'sm' | 'md' | 'lg';
+  fontSizePx?: number;
+  fontFamily?: TextFontFamily;
+  animation?: TextAnimationType;
+  isAutoCaption?: boolean;
+}
+
+export interface OverlayEffectItem {
+  id: string;
+  preset: AnimatedOverlayPreset;
+  startSec: number;
+  endSec: number;
+  intensity: number; // 0 to 100
+}
+
+export type ExportResolutionPreset = '720p' | '1080p' | '4k' | 'custom';
+export type ExportQualityPreset = 'standard' | 'high' | 'ultra';
+
+export interface StudioExportSettings {
+  resolution: ExportResolutionPreset;
+  aspectRatio: CropAspectRatio;
+  customWidth: number;
+  customHeight: number;
+  quality: ExportQualityPreset;
+  replaceOriginal: boolean;
+}
+
+export interface VideoStudioProject {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  category: string;
+  recipeId?: string;
+  isPremium: boolean;
+  durationMinutes: number;
+  prepTimeMinutes: number;
+  thumbnailUrl: string;
+  cropRatio: CropAspectRatio;
+  rotation: VideoRotationDeg;
+  bgColor?: string;
+  originalAudioVolume: number;
+  originalAudioMuted: boolean;
+  clips: VideoClipItem[];
+  audioTracks: AudioTrackItem[];
+  textOverlays: TextOverlayItem[];
+  overlayEffects?: OverlayEffectItem[];
+  exportSettings?: StudioExportSettings;
+  sourceVideoUrl?: string;
+  exportedVideoUrl?: string;
+  calories?: number | '';
+  protein?: string;
+  carbs?: string;
+  fat?: string;
+  status: 'draft' | 'published';
+  publishedVideoId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 

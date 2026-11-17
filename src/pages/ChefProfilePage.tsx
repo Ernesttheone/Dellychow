@@ -27,8 +27,8 @@ import { CommunityChat } from '../components/CommunityChat';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { ASSET_IMAGES } from '../assets/images';
 import { UserAvatar } from '../components/UserAvatar';
+import { isDummyOrAiAccountId } from '../data/starterRecipes';
 import { RecipeService } from '../services/recipeService';
 import { ShareModal, ShareItem } from '../components/ShareModal';
 import { ReportTarget } from '../components/ReportContentModal';
@@ -76,30 +76,23 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   // Load chef profile from Firestore
   useEffect(() => {
     async function loadChef() {
+      setLoadingChef(true);
+      if (!chefId || isDummyOrAiAccountId(chefId)) {
+        setChefProfile(null);
+        setLoadingChef(false);
+        return;
+      }
       try {
         const chefDocRef = doc(db, 'users', chefId);
         const snap = await getDoc(chefDocRef);
         if (snap.exists()) {
           setChefProfile(snap.data() as UserProfile);
         } else {
-          // Fallback chef data if exploring default featured chef
-          setChefProfile({
-            id: chefId,
-            displayName: 'Chef David Chen',
-            role: 'chef',
-            bio: 'Executive Chef trained in Lyon and Milan. Dedicated to demystifying classical European pasta techniques and modern French bistro gastronomy.',
-            specialty: 'Handmade Pasta & French Bistro Pastry',
-            experienceYears: 16,
-            photoURL: ASSET_IMAGES.chefAvatar,
-            premiumPriceMonthly: 9.99,
-            perks: 'Weekly video masterclasses, secret sauce chemistry notes, live Sunday cook-along, and direct Q&A in the VIP kitchen.',
-            subscriberCount: 0,
-            followerCount: 0,
-            createdAt: new Date().toISOString()
-          });
+          setChefProfile(null);
         }
       } catch (err) {
         console.error("Error loading chef profile:", err);
+        setChefProfile(null);
       } finally {
         setLoadingChef(false);
       }
@@ -156,7 +149,7 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   const chefVideos = videos.filter(v => v.authorId === chefId);
 
   const displayName = chefProfile?.displayName || 'Chef';
-  const avatarUrl = chefProfile?.photoURL || ASSET_IMAGES.chefAvatar;
+  const avatarUrl = chefProfile?.photoURL || '';
 
   // Calculate average rating
   const averageRating = useMemo(() => {
@@ -240,6 +233,31 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
       setReviewSubmitting(false);
     }
   };
+
+  if (loadingChef) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-3">
+        <ChefHat className="w-8 h-8 text-amber-600 mx-auto animate-pulse" />
+        <p className="text-xs text-stone-500 font-medium">Loading chef profile...</p>
+      </div>
+    );
+  }
+
+  if (!chefProfile) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-2xs">
+          <ChefHat className="w-8 h-8" />
+        </div>
+        <h2 className="font-serif-display text-2xl font-bold text-stone-900">
+          Chef Profile Not Found
+        </h2>
+        <p className="text-xs sm:text-sm text-stone-500 leading-relaxed">
+          The chef channel you are looking for is unavailable or does not exist.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 md:space-y-10">

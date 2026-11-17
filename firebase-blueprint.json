@@ -255,6 +255,20 @@
         "status": { "type": "string" }
       },
       "required": ["userId", "requestType", "status"]
+    },
+    "VideoStudioProject": {
+      "title": "VideoStudioProject",
+      "description": "Saved draft or published video and microphone studio project.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "status"]
     }
   },
   "firestore": {
@@ -353,6 +367,10 @@
     "/policy_metadata/{policyId}": {
       "schema": "LegalAcceptanceRecord",
       "description": "Published policy versions and effective dates."
+    },
+    "/video_projects/{projectId}": {
+      "schema": "VideoStudioProject",
+      "description": "Private user draft and studio video/audio editing projects."
     }
   }
 }

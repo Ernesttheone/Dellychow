@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Recipe, CookingVideo, UserRole } from './types';
+import { Recipe, CookingVideo, UserRole, VideoStudioProject } from './types';
 import { RecipeService } from './services/recipeService';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
@@ -30,7 +30,6 @@ import { ChefCreateRecipe } from './pages/chef/ChefCreateRecipe';
 import { ChefUploadVideo } from './pages/chef/ChefUploadVideo';
 import { ChefMyRecipes } from './pages/chef/ChefMyRecipes';
 import { ChefCommunity } from './pages/chef/ChefCommunity';
-import { ASSET_IMAGES } from './assets/images';
 import { syncPublishedVideosToServer } from './lib/videoStorage';
 import { ShareModal, ShareItem } from './components/ShareModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -105,16 +104,20 @@ function AppContent() {
     }
   };
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
-  const [selectedChefId, setSelectedChefId] = useState<string>('chef-david-chen');
+  const [selectedChefId, setSelectedChefId] = useState<string>('');
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
   const [exploreCategory, setExploreCategory] = useState<string>('all');
   const [recipeToEdit, setRecipeToEdit] = useState<Recipe | null>(null);
+  const [uploadVideoContext, setUploadVideoContext] = useState<{
+    editVideo?: CookingVideo | null;
+    studioProject?: VideoStudioProject | null;
+    openStudio?: boolean;
+  } | null>(null);
 
   // Firestore real-time data
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [videos, setVideos] = useState<CookingVideo[]>([]);
   const [loadingContent, setLoadingContent] = useState(true);
-  const [seedNotice, setSeedNotice] = useState<string | null>(null);
 
   // Modals & Sharing
   const [activeVideoModal, setActiveVideoModal] = useState<CookingVideo | null>(null);
@@ -344,6 +347,15 @@ function AppContent() {
     };
   }, [currentUser]);
 
+  // Automatically purge any previously seeded AI recipes or dummy profiles when their author or admin signs in
+  useEffect(() => {
+    if (!currentUser) return;
+    RecipeService.purgeDummyAndAiContent(
+      currentUser.uid,
+      isAuthorizedAdminUser(currentUser)
+    ).catch(() => {});
+  }, [currentUser]);
+
   const handleNavigate = (view: string, params?: any) => {
     if (view === 'user-profile') {
       setSelectedUserId(params?.userId || undefined);
@@ -368,6 +380,15 @@ function AppContent() {
           setActiveVideoModal(found);
         }
       }
+    }
+    if (view === 'chef-upload-video') {
+      setUploadVideoContext({
+        editVideo: params?.editVideo || null,
+        studioProject: params?.studioProject || null,
+        openStudio: Boolean(params?.openStudio),
+      });
+    } else {
+      setUploadVideoContext(null);
     }
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -419,25 +440,9 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handlePublishStarterRecipes = async () => {
-    const chefId = currentUser?.uid || 'chef-david-chen';
-    const chefName = userProfile?.displayName || 'Chef David Chen';
-    const chefPhoto = userProfile?.photoURL || ASSET_IMAGES.chefAvatar;
-
-    try {
-      setSeedNotice('Publishing starter recipes into Firestore...');
-      const count = await RecipeService.seedStarterRecipes(chefId, chefName, chefPhoto);
-      setSeedNotice(`Successfully published ${count} artisanal recipes & video masterclasses!`);
-      setTimeout(() => setSeedNotice(null), 3000);
-    } catch (err) {
-      console.error(err);
-      setSeedNotice('Published starter recipes!');
-      setTimeout(() => setSeedNotice(null), 3000);
-    }
-  };
-
-  // Only published recipes appear publicly to food lovers and guests
+  // Only published recipes & videos appear publicly to food lovers and guests
   const publicRecipes = recipes.filter(r => !r.status || r.status === 'published');
+  const publicVideos = videos.filter(v => !v.status || v.status === 'published');
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col bg-[#FAF7F2] text-stone-900 font-sans selection:bg-amber-500 selection:text-white">
@@ -462,13 +467,6 @@ function AppContent() {
         onSelectRecipe={handleSelectRecipe}
         onSelectChef={handleSelectChef}
       />
-
-      {/* Notification banner if starter content seeded */}
-      {seedNotice && (
-        <div className="bg-amber-600 text-white text-xs font-semibold py-2 px-4 text-center animate-in fade-in">
-          {seedNotice}
-        </div>
-      )}
 
       {/* Non-blocking Terms Update Reminder Bar (when dismissed for later) */}
       {currentUser &&
@@ -516,7 +514,7 @@ function AppContent() {
         {currentView === 'home' && (
           <HomePage
             recipes={publicRecipes}
-            videos={videos}
+            videos={publicVideos}
             onSelectRecipe={handleSelectRecipe}
             onPlayVideo={(video) => {
               setActiveVideoModal(video);
@@ -524,7 +522,6 @@ function AppContent() {
             }}
             onNavigate={handleNavigate}
             onRequestSubscribe={handleOpenSubscribe}
-            onPublishStarterRecipes={handlePublishStarterRecipes}
             onOpenAuthModal={handleOpenAuthModal}
             onShareVideo={handleShareVideo}
             onSelectChef={handleSelectChef}
@@ -554,7 +551,7 @@ function AppContent() {
 
         {currentView === 'videos' && (
           <VideosPage
-            videos={videos}
+            videos={publicVideos}
             onPlayVideo={(video) => {
               setActiveVideoModal(video);
               recordWatchedVideoOffline(video);
@@ -569,7 +566,7 @@ function AppContent() {
         {currentView === 'favourites' && (
           <FavouritesPage
             recipes={publicRecipes}
-            videos={videos}
+            videos={publicVideos}
             onSelectRecipe={handleSelectRecipe}
             onSelectChef={handleSelectChef}
             onPlayVideo={(video) => setActiveVideoModal(video)}
@@ -645,7 +642,6 @@ function AppContent() {
             videos={videos}
             onNavigate={handleNavigate}
             onEditRecipe={handleEditRecipe}
-            onPublishStarterRecipes={handlePublishStarterRecipes}
             onOpenVideoCleanup={() => setVideoCleanupOpen(true)}
           />
         )}
@@ -667,8 +663,21 @@ function AppContent() {
         {currentView === 'chef-upload-video' && (
           <ChefUploadVideo
             recipes={recipes}
-            onBack={() => setCurrentView('chef-dashboard')}
-            onSuccess={() => setCurrentView('chef-dashboard')}
+            initialEditVideo={uploadVideoContext?.editVideo || null}
+            initialStudioProject={uploadVideoContext?.studioProject || null}
+            openStudioByDefault={Boolean(uploadVideoContext?.openStudio)}
+            onBack={() => {
+              setUploadVideoContext(null);
+              setCurrentView(userProfile?.role === 'chef' ? 'chef-dashboard' : 'videos');
+            }}
+            onSuccess={() => {
+              setUploadVideoContext(null);
+              setCurrentView(userProfile?.role === 'chef' ? 'chef-dashboard' : 'videos');
+            }}
+            onPlayVideo={(video) => {
+              setActiveVideoModal(video);
+              recordWatchedVideoOffline(video);
+            }}
           />
         )}
 

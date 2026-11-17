@@ -31,8 +31,8 @@ export const STARTER_CHALLENGES: Challenge[] = [
       participation: 'Pasta Artisan Guild',
       winner: 'Grand Truffle Virtuoso'
     },
-    entryCount: 14,
-    voteCount: 86,
+    entryCount: 0,
+    voteCount: 0,
     createdAt: '2026-11-01T08:00:00.000Z'
   },
   {
@@ -62,8 +62,8 @@ export const STARTER_CHALLENGES: Challenge[] = [
       participation: 'Searing Apprentice',
       winner: 'Golden Sear Master'
     },
-    entryCount: 9,
-    voteCount: 42,
+    entryCount: 0,
+    voteCount: 0,
     createdAt: '2026-11-03T08:00:00.000Z'
   },
   {
@@ -90,8 +90,8 @@ export const STARTER_CHALLENGES: Challenge[] = [
       participation: 'Wild Yeast Baker',
       winner: 'Master of the Hearth'
     },
-    entryCount: 18,
-    voteCount: 145,
+    entryCount: 0,
+    voteCount: 0,
     createdAt: '2026-10-25T08:00:00.000Z'
   },
   {
@@ -126,7 +126,7 @@ export const STARTER_CHALLENGES: Challenge[] = [
     id: 'ch-berry-tart',
     title: 'Autumn Harvest Fruit Tarts & Sablé Crust',
     theme: 'Pâte Sablée Geometry & Seasonal Glazes',
-    description: 'Completed challenge! Congratulations to Chef Clara Gomez who captured first place with her caramelized fig and blackberry frangipane tart.',
+    description: 'Seasonal fruit tart and pâte sablée showcase archive.',
     coverImage: ASSET_IMAGES.berryTart,
     type: 'monthly',
     status: 'completed',
@@ -146,106 +146,12 @@ export const STARTER_CHALLENGES: Challenge[] = [
       participation: 'Tart Artisan',
       winner: 'Pâtisserie Grand Champion'
     },
-    entryCount: 22,
-    voteCount: 230,
-    winnerEntryId: 'entry-berry-clara',
-    winnerUserId: 'user-clara-gomez',
-    winnerUserName: 'Chef Clara Gomez',
-    winnerDishTitle: 'Black Fig & Frangipane Sablé Tart with Lavender Glaze',
+    entryCount: 0,
+    voteCount: 0,
     createdAt: '2026-10-01T08:00:00.000Z'
   }
 ];
 
-export const STARTER_ENTRIES: ChallengeEntry[] = [
-  {
-    id: 'entry-pasta-marcus',
-    challengeId: 'ch-winter-pasta',
-    challengeTitle: 'Winter Truffle & Hand-Rolled Pasta Showdown',
-    userId: 'chef-david-chen',
-    userName: 'Chef David Chen',
-    userPhoto: ASSET_IMAGES.chefAvatar,
-    userRole: 'chef',
-    dishTitle: 'Aged Parmigiano Tagliatelle with Shaved Norcia Truffle',
-    caption: 'Kneaded 36-yolk pasta dough rolled to 1.1mm thickness on white oak. Emulsified with 24-month Parmigiano whey and cultured butter emulsion.',
-    mediaUrls: [ASSET_IMAGES.trufflePasta],
-    mediaType: 'image',
-    voteCount: 28,
-    status: 'eligible',
-    submittedAt: '2026-11-02T14:30:00.000Z'
-  },
-  {
-    id: 'entry-pasta-elena',
-    challengeId: 'ch-winter-pasta',
-    challengeTitle: 'Winter Truffle & Hand-Rolled Pasta Showdown',
-    userId: 'user-elena-rossi',
-    userName: 'Elena Rossi',
-    userPhoto: ASSET_IMAGES.chefAvatar,
-    userRole: 'user',
-    dishTitle: 'Handmade Ricotta & Herb Agnolotti with Brown Butter Glaze',
-    caption: 'Pinched individual agnolotti pillows stuffed with sheep ricotta and nutmeg. Glossed in hazelnut brown butter and crisp sage.',
-    mediaUrls: [ASSET_IMAGES.trufflePasta],
-    mediaType: 'image',
-    voteCount: 19,
-    status: 'eligible',
-    submittedAt: '2026-11-03T11:15:00.000Z'
-  },
-  {
-    id: 'entry-sear-sam',
-    challengeId: 'ch-golden-sear',
-    challengeTitle: 'The Golden Crust: Master Pan Searing',
-    userId: 'user-sam-miller',
-    userName: 'Sam Miller',
-    userPhoto: ASSET_IMAGES.chefAvatar,
-    userRole: 'user',
-    dishTitle: 'Crispy Skin Steelhead Trout with Charred Citrus Beurre Blanc',
-    caption: 'Pressed in a screaming-hot carbon steel skillet with clarified ghee for 4 minutes. Skin shattered like glass while center remained medium-rare.',
-    mediaUrls: [ASSET_IMAGES.salmonBowl],
-    mediaType: 'image',
-    voteCount: 16,
-    status: 'eligible',
-    submittedAt: '2026-11-03T19:00:00.000Z'
-  },
-  {
-    id: 'entry-berry-clara',
-    challengeId: 'ch-berry-tart',
-    challengeTitle: 'Autumn Harvest Fruit Tarts & Sablé Crust',
-    userId: 'user-clara-gomez',
-    userName: 'Chef Clara Gomez',
-    userPhoto: ASSET_IMAGES.chefAvatar,
-    userRole: 'chef',
-    dishTitle: 'Black Fig & Frangipane Sablé Tart with Lavender Glaze',
-    caption: 'Classic French pâte sablée with hazelnut flour frangipane, topped with black mission figs glazed with wild lavender honey syrup.',
-    mediaUrls: [ASSET_IMAGES.berryTart],
-    mediaType: 'image',
-    voteCount: 82,
-    status: 'winner',
-    submittedAt: '2026-10-14T16:20:00.000Z'
-  }
-];
+export const STARTER_ENTRIES: ChallengeEntry[] = [];
 
-export const STARTER_BADGES: UserBadge[] = [
-  {
-    id: 'badge-1',
-    userId: 'user-clara-gomez',
-    badgeId: 'patisserie-grand-champion',
-    title: 'Pâtisserie Grand Champion',
-    description: 'Awarded 1st place in the Autumn Harvest Fruit Tarts & Sablé Crust challenge with 82 community votes.',
-    icon: '🏆',
-    challengeId: 'ch-berry-tart',
-    challengeTitle: 'Autumn Harvest Fruit Tarts & Sablé Crust',
-    category: 'winner',
-    earnedAt: '2026-10-30T23:59:59.000Z'
-  },
-  {
-    id: 'badge-2',
-    userId: 'chef-david-chen',
-    badgeId: 'pasta-artisan-guild',
-    title: 'Pasta Artisan Guild',
-    description: 'Awarded for submitting an eligible entry to the Winter Truffle & Hand-Rolled Pasta Showdown.',
-    icon: '🍝',
-    challengeId: 'ch-winter-pasta',
-    challengeTitle: 'Winter Truffle & Hand-Rolled Pasta Showdown',
-    category: 'participation',
-    earnedAt: '2026-11-02T14:30:00.000Z'
-  }
-];
+export const STARTER_BADGES: UserBadge[] = [];

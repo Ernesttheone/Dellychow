@@ -25,7 +25,6 @@ interface HomePageProps {
   onPlayVideo: (video: CookingVideo) => void;
   onNavigate: (view: string, params?: any) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
-  onPublishStarterRecipes?: () => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
   onShareVideo?: (video: CookingVideo) => void;
   onSelectChef?: (chefId: string) => void;
@@ -38,7 +37,6 @@ export const HomePage: React.FC<HomePageProps> = ({
   onPlayVideo,
   onNavigate,
   onRequestSubscribe,
-  onPublishStarterRecipes,
   onOpenAuthModal,
   onShareVideo,
   onSelectChef
@@ -321,17 +319,6 @@ export const HomePage: React.FC<HomePageProps> = ({
             <p className="text-xs sm:text-sm text-stone-500 leading-relaxed">
               Our chefs are preparing fresh recipes in their kitchens. Please explore again soon, or publish your own culinary creations!
             </p>
-            {onPublishStarterRecipes && (
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={onPublishStarterRecipes}
-                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition-colors shadow-sm"
-                >
-                  Publish Chef David Chen&apos;s Starter Recipes
-                </button>
-              </div>
-            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">

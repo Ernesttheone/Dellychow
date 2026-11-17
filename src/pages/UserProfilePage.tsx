@@ -40,6 +40,7 @@ import { ShareModal, ShareItem } from '../components/ShareModal';
 import { ReportTarget } from '../components/ReportContentModal';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { isDummyOrAiAccountId } from '../data/starterRecipes';
 
 interface UserProfilePageProps {
   recipes: Recipe[];
@@ -83,24 +84,22 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   React.useEffect(() => {
     if (isViewingOtherUser && viewUserId) {
       setLoadingPublicUser(true);
+      if (isDummyOrAiAccountId(viewUserId)) {
+        setPublicUser(null);
+        setLoadingPublicUser(false);
+        return;
+      }
       const fetchPublicUser = async () => {
         try {
           const userDoc = await getDoc(doc(db, 'users', viewUserId));
           if (userDoc.exists()) {
             setPublicUser(userDoc.data() as UserProfile);
           } else {
-            // Provide a pleasant fallback for demo food lover accounts
-            setPublicUser({
-              id: viewUserId,
-              displayName: 'DellyChow Food Lover',
-              role: 'user',
-              bio: 'Passionate culinary explorer discovering artisan recipes, testing flavours, and sharing the love of food.',
-              photoURL: getDefaultAvatar(viewUserId).svgDataUri,
-              createdAt: new Date().toISOString()
-            });
+            setPublicUser(null);
           }
         } catch (e) {
           console.warn('Could not load public profile:', e);
+          setPublicUser(null);
         } finally {
           setLoadingPublicUser(false);
         }

@@ -83,17 +83,17 @@ export const FavouritesPage: React.FC<FavouritesPageProps> = ({
     if (full) return full;
     return {
       id: vf.videoId,
-      authorId: 'chef-david-chen',
+      authorId: '',
       authorName: vf.authorName,
       authorPhoto: vf.authorPhoto,
       title: vf.videoTitle,
       description: 'Bookmarked culinary technique tutorial.',
-      videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+      videoUrl: '',
       thumbnailUrl: vf.thumbnailUrl,
       durationMinutes: vf.durationMinutes,
       category: vf.category,
       isPremium: vf.isPremium,
-      viewCount: 1000,
+      viewCount: 0,
       createdAt: vf.addedAt
     };
   });

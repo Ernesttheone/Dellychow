@@ -13,16 +13,70 @@ import {
 import { db } from '../lib/firebase';
 import { Challenge, ChallengeEntry, ChallengeVote, UserBadge, UserRole } from '../types';
 import { STARTER_CHALLENGES, STARTER_ENTRIES, STARTER_BADGES } from '../data/challenges';
+import { isDummyOrAiAccountId, DUMMY_ACCOUNT_NAMES } from '../data/starterRecipes';
 
 const LOCAL_CHALLENGES_KEY = 'dellychow_challenges';
 const LOCAL_ENTRIES_KEY = 'dellychow_challenge_entries';
 const LOCAL_VOTES_KEY = 'dellychow_challenge_votes';
 const LOCAL_BADGES_KEY = 'dellychow_user_badges';
 
+const DUMMY_ENTRY_IDS = new Set([
+  'entry-pasta-marcus',
+  'entry-pasta-elena',
+  'entry-sear-sam',
+  'entry-berry-clara',
+]);
+
+const DUMMY_BADGE_IDS = new Set(['badge-1', 'badge-2']);
+
+function sanitizeChallenges(list: Challenge[]): Challenge[] {
+  const starterMap = new Map(STARTER_CHALLENGES.map((c) => [c.id, c]));
+  return list.map((c) => {
+    if (isDummyOrAiAccountId(c.winnerUserId) || DUMMY_ENTRY_IDS.has(c.winnerEntryId || '')) {
+      const cleanTemplate = starterMap.get(c.id);
+      if (cleanTemplate) return cleanTemplate;
+      const { winnerEntryId: _we, winnerUserId: _wu, winnerUserName: _wn, winnerDishTitle: _wd, ...rest } = c;
+      return { ...rest, entryCount: 0, voteCount: 0 };
+    }
+    return c;
+  });
+}
+
+function sanitizeEntries(list: ChallengeEntry[]): ChallengeEntry[] {
+  return list.filter(
+    (e) =>
+      !DUMMY_ENTRY_IDS.has(e.id) &&
+      !isDummyOrAiAccountId(e.userId) &&
+      !DUMMY_ACCOUNT_NAMES.has((e.userName || '').trim())
+  );
+}
+
+function sanitizeBadges(list: UserBadge[]): UserBadge[] {
+  return list.filter((b) => !DUMMY_BADGE_IDS.has(b.id) && !isDummyOrAiAccountId(b.userId));
+}
+
 function getLocal<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (key === LOCAL_ENTRIES_KEY && Array.isArray(parsed)) {
+        const cleaned = sanitizeEntries(parsed);
+        if (cleaned.length !== parsed.length) setLocal(key, cleaned);
+        return cleaned as unknown as T;
+      }
+      if (key === LOCAL_BADGES_KEY && Array.isArray(parsed)) {
+        const cleaned = sanitizeBadges(parsed);
+        if (cleaned.length !== parsed.length) setLocal(key, cleaned);
+        return cleaned as unknown as T;
+      }
+      if (key === LOCAL_CHALLENGES_KEY && Array.isArray(parsed)) {
+        const cleaned = sanitizeChallenges(parsed);
+        setLocal(key, cleaned);
+        return cleaned as unknown as T;
+      }
+      return parsed;
+    }
   } catch (e) {
     console.warn(`Local storage read error for ${key}:`, e);
   }
@@ -52,7 +106,7 @@ export const ChallengeService = {
             items.push({ id: docSnap.id, ...(docSnap.data() as Omit<Challenge, 'id'>) });
           });
           // Merge with starter challenges if some aren't in firestore
-          const merged = [...items];
+          const merged = sanitizeChallenges([...items]);
           for (const st of STARTER_CHALLENGES) {
             if (!merged.some(m => m.id === st.id)) {
               merged.push(st);
@@ -77,7 +131,7 @@ export const ChallengeService = {
   // Listen to entries for a specific challenge
   listenToChallengeEntries(challengeId: string, callback: (entries: ChallengeEntry[]) => void): () => void {
     const allEntries = getLocal<ChallengeEntry[]>(LOCAL_ENTRIES_KEY, STARTER_ENTRIES);
-    const filtered = allEntries.filter(e => e.challengeId === challengeId);
+    const filtered = sanitizeEntries(allEntries).filter(e => e.challengeId === challengeId);
     callback(filtered);
 
     try {
@@ -89,16 +143,10 @@ export const ChallengeService = {
           snapshot.forEach((docSnap) => {
             remote.push({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeEntry, 'id'>) });
           });
-          // Merge with starter entries
-          const merged = [...remote];
-          for (const se of STARTER_ENTRIES.filter(e => e.challengeId === challengeId)) {
-            if (!merged.some(m => m.id === se.id)) {
-              merged.push(se);
-            }
-          }
+          const cleaned = sanitizeEntries(remote);
           // Sort by votes then newest
-          merged.sort((a, b) => (b.voteCount || 0) - (a.voteCount || 0));
-          callback(merged);
+          cleaned.sort((a, b) => (b.voteCount || 0) - (a.voteCount || 0));
+          callback(cleaned);
         } else {
           callback(filtered);
         }

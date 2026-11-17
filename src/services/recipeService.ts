@@ -36,7 +36,7 @@ import {
   CommunitySettings,
   CommunityReport
 } from '../types';
-import { STARTER_RECIPES, STARTER_VIDEOS } from '../data/starterRecipes';
+import { isDummyOrAiAccountId, DUMMY_ACCOUNT_NAMES, isSeededAiRecipe } from '../data/starterRecipes';
 import { backupStoredVideos, clearAllStoredVideos } from '../lib/videoStorage';
 
 function cleanUndefined<T extends Record<string, any>>(obj: T): T {
@@ -60,7 +60,10 @@ export const RecipeService = {
     return onSnapshot(recipesRef, (snapshot) => {
       const items: Recipe[] = [];
       snapshot.forEach((docSnap) => {
-        items.push({ id: docSnap.id, ...(docSnap.data() as Omit<Recipe, 'id'>) });
+        const recipe = { id: docSnap.id, ...(docSnap.data() as Omit<Recipe, 'id'>) };
+        if (!isSeededAiRecipe(recipe)) {
+          items.push(recipe);
+        }
       });
       // Sort newest first
       items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -182,7 +185,14 @@ export const RecipeService = {
     return onSnapshot(videosRef, (snapshot) => {
       const items: CookingVideo[] = [];
       snapshot.forEach((docSnap) => {
-        items.push({ id: docSnap.id, ...(docSnap.data() as Omit<CookingVideo, 'id'>) });
+        const video = { id: docSnap.id, ...(docSnap.data() as Omit<CookingVideo, 'id'>) };
+        if (
+          !isDummyOrAiAccountId(video.authorId) &&
+          !DUMMY_ACCOUNT_NAMES.has((video.authorName || '').trim()) &&
+          !(video.videoUrl || '').includes('dQw4w9WgXcQ')
+        ) {
+          items.push(video);
+        }
       });
       items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       callback(items);
@@ -712,33 +722,62 @@ export const RecipeService = {
     }
   },
 
-  // Seed initial starter recipes when chef or user clicks Publish Starter Recipes
-  async seedStarterRecipes(chefId: string, chefName: string, chefPhoto: string): Promise<number> {
-    let count = 0;
-    for (const r of STARTER_RECIPES) {
-      const newDocRef = doc(collection(db, 'recipes'));
-      await setDoc(newDocRef, {
-        ...r,
-        authorId: chefId,
-        authorName: chefName,
-        authorPhoto: chefPhoto,
-        createdAt: new Date().toISOString()
-      });
-      count++;
+  // Purge previously seeded AI recipes, dummy videos, and dummy user profiles from Firestore when authorized
+  async purgeDummyAndAiContent(currentUserUid?: string, isAdmin = false): Promise<number> {
+    if (!currentUserUid) return 0;
+    let deletedCount = 0;
+
+    try {
+      const recipesSnap = await getDocs(collection(db, 'recipes'));
+      for (const docSnap of recipesSnap.docs) {
+        const data = docSnap.data() as Partial<Recipe>;
+        if (isSeededAiRecipe(data) && (isAdmin || data.authorId === currentUserUid)) {
+          await deleteDoc(doc(db, 'recipes', docSnap.id));
+          deletedCount++;
+        }
+      }
+    } catch (err) {
+      console.warn('Notice purging seeded AI recipes:', err);
     }
 
-    for (const v of STARTER_VIDEOS) {
-      const newDocRef = doc(collection(db, 'videos'));
-      await setDoc(newDocRef, {
-        ...v,
-        authorId: chefId,
-        authorName: chefName,
-        authorPhoto: chefPhoto,
-        createdAt: new Date().toISOString()
-      });
+    try {
+      const videosSnap = await getDocs(collection(db, 'videos'));
+      for (const docSnap of videosSnap.docs) {
+        const data = docSnap.data() as Partial<CookingVideo>;
+        const isDummyVideo =
+          isDummyOrAiAccountId(data.authorId) ||
+          (data.authorName && DUMMY_ACCOUNT_NAMES.has(data.authorName.trim())) ||
+          (data.videoUrl || '').includes('dQw4w9WgXcQ');
+        if (isDummyVideo && (isAdmin || data.authorId === currentUserUid)) {
+          await deleteDoc(doc(db, 'videos', docSnap.id));
+          deletedCount++;
+        }
+      }
+    } catch (err) {
+      console.warn('Notice purging dummy videos:', err);
     }
 
-    return count;
+    if (isAdmin) {
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        for (const docSnap of usersSnap.docs) {
+          const data = docSnap.data() as { displayName?: string; isDummy?: boolean; isAiAccount?: boolean };
+          if (
+            isDummyOrAiAccountId(docSnap.id) ||
+            data?.isDummy === true ||
+            data?.isAiAccount === true ||
+            (data?.displayName && DUMMY_ACCOUNT_NAMES.has(data.displayName.trim()))
+          ) {
+            await deleteDoc(doc(db, 'users', docSnap.id));
+            deletedCount++;
+          }
+        }
+      } catch (err) {
+        console.warn('Notice purging dummy user profiles:', err);
+      }
+    }
+
+    return deletedCount;
   },
 
   // Complete Video Cleanup Feature: Permanently removes all AI-generated and uploaded videos

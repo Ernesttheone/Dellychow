@@ -490,3 +490,45 @@ export async function clearAllStoredVideos(): Promise<{ clearedCount: number }> 
   return { clearedCount: 0 };
 }
 
+/**
+ * Probe exact media duration in seconds for audio or video blobs or URLs.
+ */
+export function probeMediaDurationSec(
+  source: Blob | string,
+  kind: 'video' | 'audio' = 'video'
+): Promise<number> {
+  return new Promise((resolve) => {
+    const el = document.createElement(kind);
+    el.preload = 'metadata';
+    const isBlob = typeof source !== 'string';
+    const url = isBlob ? URL.createObjectURL(source) : source;
+    let settled = false;
+
+    const finish = (sec: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (isBlob) URL.revokeObjectURL(url);
+      el.remove();
+      resolve(Number.isFinite(sec) && sec > 0 ? sec : 0);
+    };
+
+    const timer = setTimeout(() => finish(0), 6000);
+
+    el.onloadedmetadata = () => {
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        finish(el.duration);
+        return;
+      }
+      // Handle WebM MediaRecorder blobs whose duration is initially Infinity
+      el.currentTime = 1e10;
+      el.ontimeupdate = () => {
+        el.ontimeupdate = null;
+        finish(Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0);
+      };
+    };
+
+    el.onerror = () => finish(0);
+    el.src = url;
+  });
+}

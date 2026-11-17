@@ -20,6 +20,7 @@ import {
   X,
   Scale,
   ShieldAlert,
+  Sliders,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
@@ -51,13 +52,13 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const legalViews = ['legal', 'terms', 'privacy', 'guidelines', 'copyright', 'food-safety', 'cookies', 'reporting', 'contact'];
   const isLegalActive = legalViews.includes(currentView);
 
-  const handleNav = (view: string, requiresAuth = false) => {
+  const handleNav = (view: string, requiresAuth = false, params?: any) => {
     if (requiresAuth && !currentUser) {
       onOpenAuthModal('login', 'user');
       onCloseMobileDrawer();
       return;
     }
-    onNavigate(view);
+    onNavigate(view, params);
     onCloseMobileDrawer();
   };
 
@@ -71,6 +72,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const chefItems = [
     { id: 'chef-dashboard', label: 'Chef Studio', icon: ChefHat },
     { id: 'chef-upload-video', label: 'Upload Video', icon: Upload },
+    { id: 'chef-video-studio', view: 'chef-upload-video', params: { openStudio: true }, label: 'Video Studio', icon: Sliders },
     { id: 'chef-create-recipe', label: 'Create Recipe', icon: PlusCircle },
     { id: 'chef-my-recipes', label: 'My Recipes', icon: BookOpen },
     { id: 'chef-community', label: 'Chef Circle', icon: Users },
@@ -83,6 +85,18 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       icon: Bookmark,
       requiresAuth: false,
     },
+    ...(!isChef
+      ? [
+          {
+            id: 'video-studio',
+            view: 'chef-upload-video',
+            params: { openStudio: true },
+            label: 'Video Studio',
+            icon: Sliders,
+            requiresAuth: true,
+          },
+        ]
+      : []),
     { id: 'shopping-lists', label: 'Shopping Lists', icon: ShoppingCart, requiresAuth: false },
     { id: 'challenges', label: 'Challenges', icon: Trophy, requiresAuth: false },
     { id: 'user-profile', label: 'My Profile', icon: User, requiresAuth: true },
@@ -161,12 +175,14 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           )}
           {chefItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentView === item.id;
+            const targetView = (item as any).view || item.id;
+            const targetParams = (item as any).params;
+            const isActive = item.id !== 'chef-video-studio' && currentView === targetView;
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => handleNav(item.id)}
+                onClick={() => handleNav(targetView, false, targetParams)}
                 title={!isExpandedView ? item.label : undefined}
                 aria-current={isActive ? 'page' : undefined}
                 className={`w-full flex items-center ${
@@ -183,7 +199,11 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                     isExpandedView ? 'text-sm truncate' : 'text-[10px] text-center leading-tight line-clamp-1'
                   }`}
                 >
-                  {!isExpandedView && item.id === 'chef-dashboard' ? 'Studio' : item.label}
+                  {!isExpandedView && item.id === 'chef-dashboard'
+                    ? 'Studio'
+                    : !isExpandedView && item.id === 'chef-video-studio'
+                    ? 'Editor'
+                    : item.label}
                 </span>
               </button>
             );
@@ -220,12 +240,14 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <div className="space-y-1">
             {libraryItems.map((item) => {
               const Icon = item.icon;
-              const isActive = currentView === item.id;
+              const targetView = (item as any).view || item.id;
+              const targetParams = (item as any).params;
+              const isActive = item.id !== 'video-studio' && currentView === targetView;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => handleNav(item.id, item.requiresAuth)}
+                  onClick={() => handleNav(targetView, item.requiresAuth, targetParams)}
                   title={!isExpandedView ? item.label : undefined}
                   aria-current={isActive ? 'page' : undefined}
                   className={`w-full flex items-center ${
@@ -248,6 +270,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                       ? 'Profile'
                       : !isExpandedView && item.id === 'favourites'
                       ? 'Saved'
+                      : !isExpandedView && item.id === 'video-studio'
+                      ? 'Editor'
                       : item.label}
                   </span>
                 </button>

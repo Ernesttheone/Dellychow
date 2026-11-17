@@ -10,7 +10,8 @@ import {
   X, 
   Trophy, 
   ShoppingCart,
-  Sparkles
+  Sparkles,
+  Sliders
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar';
@@ -194,11 +195,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 type="button"
                 onClick={() => {
                   setCreateSheetOpen(false);
-                  if (isChef) {
-                    onNavigate('chef-upload-video');
-                  } else {
-                    onNavigate('videos');
-                  }
+                  onNavigate('chef-upload-video');
                 }}
                 className="w-full p-3.5 rounded-2xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/70 flex items-center gap-3.5 text-left transition-all active:scale-98"
               >
@@ -207,15 +204,34 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm text-stone-900 flex items-center gap-1.5">
-                    <span>{isChef ? 'Upload / Record Video' : 'Watch Cooking Videos'}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white font-semibold">
-                      {isChef ? 'Studio' : 'Feed'}
-                    </span>
+                    <span>Record or Upload Video</span>
                   </div>
                   <p className="text-xs text-stone-600 mt-0.5">
-                    {isChef
-                      ? 'Record live or publish a step-by-step culinary tutorial'
-                      : 'Browse chef video tutorials and culinary masterclasses'}
+                    Capture live kitchen video or upload clips from your phone
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateSheetOpen(false);
+                  onNavigate('chef-upload-video', { openStudio: true });
+                }}
+                className="w-full p-3.5 rounded-2xl bg-stone-900 hover:bg-stone-800 border border-stone-800 flex items-center gap-3.5 text-left transition-all active:scale-98 text-white"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shrink-0 shadow-xs">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm flex items-center gap-1.5">
+                    <span>Open Video Editing Studio</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-bold">
+                      PRO
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-300 mt-0.5">
+                    Trim, split, merge, voiceover, music, captions &amp; AI tools
                   </p>
                 </div>
               </button>

@@ -245,6 +245,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Video & Audio Studio Draft Projects (private to project owner or admin)
+    match /video_projects/{projectId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isValidId(projectId)
+        && incoming().userId == request.auth.uid
+        && incoming().status in ['draft', 'published'];
+      allow update: if isSignedIn()
+        && (existing().userId == request.auth.uid || isAdmin())
+        && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
     // Immutable Legal Consent & Policy Acceptance Audit Records
     match /legal_acceptances/{acceptanceId} {
       allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());

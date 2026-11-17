@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Play, Search, Video, ChefHat, Sparkles, Plus, Clock, ShieldCheck, LogIn, Lock, WifiOff } from 'lucide-react';
+import { Play, Search, Video, ChefHat, Sparkles, Plus, Clock, ShieldCheck, LogIn, Lock, WifiOff, Sliders } from 'lucide-react';
 import { CookingVideo } from '../types';
 import { VideoCard } from '../components/VideoCard';
 import { useAuth } from '../context/AuthContext';
@@ -92,14 +92,25 @@ export const VideosPage: React.FC<VideosPageProps> = ({
           </p>
         </div>
 
-        {isChef && (
-          <button
-            onClick={() => onNavigate('chef-upload-video')}
-            className="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 self-start md:self-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Post Cooking Video</span>
-          </button>
+        {currentUser && (
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+            <button
+              type="button"
+              onClick={() => onNavigate('chef-upload-video', { openStudio: true })}
+              className="px-4 py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
+            >
+              <Sliders className="w-4 h-4 text-amber-400" />
+              <span>Edit Video Studio</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('chef-upload-video')}
+              className="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{isChef ? 'Post Cooking Video' : 'Record / Create Video'}</span>
+            </button>
+          </div>
         )}
       </div>
 

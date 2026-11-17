@@ -339,20 +339,20 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={imageProcessing}
-                className="px-5 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-60"
+                className="w-full md:w-auto px-5 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-60"
               >
                 <Upload className="w-4 h-4" />
                 <span>{imageProcessing ? 'Processing Image...' : 'Upload Picture From Device'}</span>
               </button>
 
-              <span className="text-xs text-stone-400 text-center sm:text-left">or enter photo link:</span>
+              <span className="hidden md:inline text-xs text-stone-400 text-left">or enter photo link:</span>
 
               <input
                 type="url"
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
                 placeholder="https://... photo URL"
-                className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
+                className="hidden md:block flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
               />
             </div>
 

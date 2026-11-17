@@ -16,13 +16,16 @@ import {
   Send,
   Ticket
 } from 'lucide-react';
-import { CookingVideo, Masterclass, MasterclassRegistration } from '../types';
+import { CookingVideo, Masterclass, MasterclassRegistration, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { CommunityChat } from '../components/CommunityChat';
 import { VideoCard } from '../components/VideoCard';
-import { ASSET_IMAGES } from '../assets/images';
+import { UserAvatar } from '../components/UserAvatar';
 import { STARTER_MASTERCLASSES } from '../data/masterclasses';
+import { isDummyOrAiAccountId, DUMMY_ACCOUNT_NAMES } from '../data/starterRecipes';
 import { RecipeService } from '../services/recipeService';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface PremiumPageProps {
   videos: CookingVideo[];
@@ -59,21 +62,63 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
   // VIP Videos
   const vipVideos = videos.filter(v => v.isPremium);
 
-  // Featured chefs offering VIP memberships
-  const featuredVipChefs = [
-    {
-      id: 'chef-david-chen',
-      name: 'Chef David Chen',
-      photo: ASSET_IMAGES.chefAvatar,
-      specialty: 'Handmade Pasta & French Bistro Pastry',
-      monthlyPrice: 9.99,
-      perks: [
-        'Weekly live masterclasses with step-by-step guidance',
-        'Direct culinary troubleshooting in the VIP kitchen chat',
-        'Private library of secret recipes and mother sauce ratios'
-      ]
-    }
-  ];
+  // Real chefs loaded from Firestore
+  const [featuredVipChefs, setFeaturedVipChefs] = useState<Array<{
+    id: string;
+    name: string;
+    photo?: string;
+    specialty: string;
+    monthlyPrice: number;
+    perks: string[];
+  }>>([]);
+
+  useEffect(() => {
+    let active = true;
+    getDocs(query(collection(db, 'users'), where('role', '==', 'chef')))
+      .then((snap) => {
+        if (!active) return;
+        const loaded: Array<{
+          id: string;
+          name: string;
+          photo?: string;
+          specialty: string;
+          monthlyPrice: number;
+          perks: string[];
+        }> = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data() as UserProfile & { isDummy?: boolean; isAiAccount?: boolean };
+          if (
+            isDummyOrAiAccountId(docSnap.id) ||
+            data?.isDummy ||
+            data?.isAiAccount ||
+            DUMMY_ACCOUNT_NAMES.has((data?.displayName || '').trim())
+          ) {
+            return;
+          }
+          loaded.push({
+            id: docSnap.id,
+            name: data.displayName || 'Chef',
+            photo: data.photoURL,
+            specialty: data.specialty || 'Artisanal Culinary Arts',
+            monthlyPrice: data.premiumPriceMonthly || 9.99,
+            perks: data.perks
+              ? [data.perks]
+              : [
+                  'Private VIP kitchen community group chat',
+                  'Exclusive cooking masterclasses & step-by-step tutorials',
+                  'Direct culinary guidance & recipe troubleshooting',
+                ],
+          });
+        });
+        setFeaturedVipChefs(loaded);
+      })
+      .catch(() => {
+        if (active) setFeaturedVipChefs([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Listen to user's registered masterclasses from Firestore
   useEffect(() => {
@@ -249,6 +294,15 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
           </p>
         </div>
 
+        {masterclasses.length === 0 ? (
+          <div className="p-10 rounded-3xl bg-white border border-stone-200/80 text-center space-y-2">
+            <Calendar className="w-8 h-8 text-amber-600 mx-auto" />
+            <p className="font-serif-display text-lg font-bold text-stone-900">No Live VIP Masterclasses Scheduled Yet</p>
+            <p className="text-xs text-stone-500 max-w-md mx-auto">
+              Verified chefs will post upcoming interactive cooking masterclasses here when scheduled.
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {masterclasses.map((mc) => {
             const isRegistered = userRegistrations.some(r => r.masterclassId === mc.id);
@@ -358,6 +412,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Active VIP Subscriptions Section */}
@@ -443,6 +498,15 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
           </p>
         </div>
 
+        {featuredVipChefs.length === 0 ? (
+          <div className="p-10 rounded-3xl bg-white border border-stone-200/80 text-center space-y-2">
+            <ChefHat className="w-8 h-8 text-amber-600 mx-auto" />
+            <p className="font-serif-display text-lg font-bold text-stone-900">No VIP Chef Circles Available Yet</p>
+            <p className="text-xs text-stone-500 max-w-md mx-auto">
+              Registered chefs can enable their VIP Kitchen Circles from Chef Studio.
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {featuredVipChefs.map((chef) => (
             <div 
@@ -451,11 +515,12 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
             >
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
-                  <img
+                  <UserAvatar
                     src={chef.photo}
-                    alt={chef.name}
-                    referrerPolicy="no-referrer"
-                    className="w-14 h-14 rounded-2xl object-cover ring-2 ring-amber-500/20"
+                    seed={chef.id}
+                    name={chef.name}
+                    size="lg"
+                    className="ring-2 ring-amber-500/20"
                   />
                   <div>
                     <h3 className="font-serif-display text-lg font-bold text-stone-900">{chef.name}</h3>
@@ -490,6 +555,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Exclusive VIP Masterclass Cooking Tutorials */}

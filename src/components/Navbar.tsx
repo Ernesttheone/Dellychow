@@ -23,6 +23,7 @@ import {
   Home,
   Compass,
   Scale,
+  Sliders,
 } from 'lucide-react';
 import { UserRole, CookingVideo, Recipe } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -383,27 +384,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={() => {
                   if (!currentUser) {
-                    onOpenAuthModal('signup', 'chef');
+                    onOpenAuthModal('signup', 'user');
                     return;
                   }
-                  if (isChef) {
-                    setCreateMenuOpen(!createMenuOpen);
-                    setNotificationOpen(false);
-                    setUserDropdownOpen(false);
-                  } else {
-                    onNavigate('challenges');
-                  }
+                  setCreateMenuOpen(!createMenuOpen);
+                  setNotificationOpen(false);
+                  setUserDropdownOpen(false);
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-100 text-xs font-semibold transition-colors cursor-pointer"
-                title={isChef ? 'Create video or recipe' : 'Explore cooking challenges'}
+                title="Record or publish culinary videos"
               >
                 <Plus className="w-4 h-4 text-amber-600" />
-                <span>{isChef ? 'Create' : 'Challenges'}</span>
+                <span>Create</span>
               </button>
 
-              {createMenuOpen && isChef && (
+              {createMenuOpen && currentUser && (
                 <div
-                  className="absolute right-0 mt-2 w-52 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-800 py-1.5 z-50 animate-in fade-in slide-in-from-top-1"
+                  className="absolute right-0 mt-2 w-56 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-800 py-1.5 z-50 animate-in fade-in slide-in-from-top-1"
                   onMouseLeave={() => setCreateMenuOpen(false)}
                 >
                   <button
@@ -415,30 +412,57 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="w-full text-left px-4 py-2.5 text-xs font-semibold text-stone-800 dark:text-stone-100 hover:bg-amber-50 dark:hover:bg-stone-800 flex items-center gap-2.5 cursor-pointer"
                   >
                     <Upload className="w-4 h-4 text-amber-600" />
-                    <span>Upload / Record Video</span>
+                    <span>Record or Upload Video</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      onNavigate('chef-create-recipe');
+                      onNavigate('chef-upload-video', { openStudio: true });
                       setCreateMenuOpen(false);
                     }}
                     className="w-full text-left px-4 py-2.5 text-xs font-semibold text-stone-800 dark:text-stone-100 hover:bg-amber-50 dark:hover:bg-stone-800 flex items-center gap-2.5 cursor-pointer"
                   >
-                    <BookOpen className="w-4 h-4 text-amber-600" />
-                    <span>Publish Recipe Guide</span>
+                    <Sliders className="w-4 h-4 text-amber-600" />
+                    <span>Open Video Editing Studio</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onNavigate('chef-dashboard');
-                      setCreateMenuOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-semibold text-stone-800 dark:text-stone-100 hover:bg-amber-50 dark:hover:bg-stone-800 flex items-center gap-2.5 border-t border-stone-100 dark:border-stone-800 cursor-pointer"
-                  >
-                    <ChefHat className="w-4 h-4 text-stone-500" />
-                    <span>Open Chef Studio</span>
-                  </button>
+                  {isChef ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onNavigate('chef-create-recipe');
+                          setCreateMenuOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-semibold text-stone-800 dark:text-stone-100 hover:bg-amber-50 dark:hover:bg-stone-800 flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <BookOpen className="w-4 h-4 text-amber-600" />
+                        <span>Publish Recipe Guide</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onNavigate('chef-dashboard');
+                          setCreateMenuOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-semibold text-stone-800 dark:text-stone-100 hover:bg-amber-50 dark:hover:bg-stone-800 flex items-center gap-2.5 border-t border-stone-100 dark:border-stone-800 cursor-pointer"
+                      >
+                        <ChefHat className="w-4 h-4 text-stone-500" />
+                        <span>Open Chef Studio</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onNavigate('challenges');
+                        setCreateMenuOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-semibold text-stone-800 dark:text-stone-100 hover:bg-amber-50 dark:hover:bg-stone-800 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Trophy className="w-4 h-4 text-amber-600" />
+                      <span>Join Cooking Challenges</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -715,7 +739,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => onOpenAuthModal('signup')}
                   className="px-3 sm:px-4 min-h-[38px] sm:min-h-[40px] text-xs font-semibold text-white bg-amber-600 rounded-xl hover:bg-amber-700 transition-colors shadow-xs whitespace-nowrap cursor-pointer"
                 >
-                  <span className="hidden sm:inline">Sign In / Join</span>
+                  <span className="hidden sm:inline">Create Account</span>
                   <span className="sm:hidden">Sign In</span>
                 </button>
               </div>
@@ -760,6 +784,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             );
           })}
+
+          {currentUser && (
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate('chef-upload-video', { openStudio: true });
+                setMobileMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 text-left px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold text-amber-800 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 transition-colors cursor-pointer"
+            >
+              <Sliders className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>Video Editing Studio</span>
+            </button>
+          )}
 
           {/* Food Lover Theme Toggle directly after VIP Classes */}
           {!isChef && (

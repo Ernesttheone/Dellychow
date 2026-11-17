@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ChefHat, 
   UtensilsCrossed, 
@@ -15,11 +15,18 @@ import {
   ArrowRight,
   AlertCircle,
   Loader2,
-  X
+  X,
+  Sliders,
+  Film,
+  Copy,
+  Check,
+  Clock,
+  Send
 } from 'lucide-react';
-import { Recipe, CookingVideo } from '../../types';
+import { Recipe, CookingVideo, VideoStudioProject } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
+import { VideoStudioService } from '../../services/videoStudioService';
 import { UserAvatar } from '../../components/UserAvatar';
 
 interface ChefDashboardProps {
@@ -27,7 +34,6 @@ interface ChefDashboardProps {
   videos: CookingVideo[];
   onNavigate: (view: string, params?: any) => void;
   onEditRecipe: (recipe: Recipe) => void;
-  onPublishStarterRecipes?: () => void;
   onOpenVideoCleanup?: () => void;
 }
 
@@ -36,7 +42,6 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
   videos,
   onNavigate,
   onEditRecipe,
-  onPublishStarterRecipes,
   onOpenVideoCleanup
 }) => {
   const { currentUser, userProfile } = useAuth();
@@ -44,8 +49,36 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
   const [deletingVideo, setDeletingVideo] = useState(false);
   const [videoDeleteError, setVideoDeleteError] = useState('');
 
+  const [recipeToDelete, setRecipeToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deletingRecipe, setDeletingRecipe] = useState(false);
+
+  const [studioDrafts, setStudioDrafts] = useState<VideoStudioProject[]>([]);
+  const [loadingDrafts, setLoadingDrafts] = useState(false);
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renameDraftTitle, setRenameDraftTitle] = useState('');
+  const [projectToDelete, setProjectToDelete] = useState<VideoStudioProject | null>(null);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [publishingVideoId, setPublishingVideoId] = useState<string | null>(null);
+
   const chefRecipes = recipes.filter(r => r.authorId === currentUser?.uid);
   const chefVideos = videos.filter(v => v.authorId === currentUser?.uid);
+
+  const loadStudioDrafts = useCallback(async () => {
+    if (!currentUser?.uid) return;
+    setLoadingDrafts(true);
+    try {
+      const list = await VideoStudioService.listUserProjects(currentUser.uid);
+      setStudioDrafts(list);
+    } catch {
+      // fallback already handled in service
+    } finally {
+      setLoadingDrafts(false);
+    }
+  }, [currentUser?.uid]);
+
+  useEffect(() => {
+    loadStudioDrafts();
+  }, [loadStudioDrafts]);
 
   // Analytics
   const totalViews = chefVideos.reduce((acc, v) => acc + (v.viewCount || 0), 0);
@@ -53,13 +86,16 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
     ? (chefRecipes.reduce((acc, r) => acc + (r.ratingAverage || 5.0), 0) / chefRecipes.length).toFixed(1)
     : '5.0';
 
-  const handleDeleteRecipe = async (recipeId: string, title: string) => {
-    if (confirm(`Are you sure you want to delete "${title}"?`)) {
-      try {
-        await RecipeService.deleteRecipe(recipeId);
-      } catch (err) {
-        console.error("Error deleting recipe:", err);
-      }
+  const handleConfirmDeleteRecipe = async () => {
+    if (!recipeToDelete || deletingRecipe) return;
+    setDeletingRecipe(true);
+    try {
+      await RecipeService.deleteRecipe(recipeToDelete.id);
+      setRecipeToDelete(null);
+    } catch (err) {
+      console.error("Error deleting recipe:", err);
+    } finally {
+      setDeletingRecipe(false);
     }
   };
 
@@ -75,6 +111,43 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
       setVideoDeleteError(err?.message || 'Could not delete video. Please try again.');
     } finally {
       setDeletingVideo(false);
+    }
+  };
+
+  const handleSaveRenameProject = async (proj: VideoStudioProject) => {
+    const clean = renameDraftTitle.trim();
+    if (!clean) {
+      setRenamingProjectId(null);
+      return;
+    }
+    await VideoStudioService.renameProject(proj, clean);
+    setRenamingProjectId(null);
+    await loadStudioDrafts();
+  };
+
+  const handleDuplicateDraft = async (proj: VideoStudioProject) => {
+    await VideoStudioService.duplicateProject(proj);
+    await loadStudioDrafts();
+  };
+
+  const handleConfirmDeleteProject = async () => {
+    if (!projectToDelete || !currentUser?.uid || deletingProject) return;
+    setDeletingProject(true);
+    try {
+      await VideoStudioService.deleteProject(currentUser.uid, projectToDelete);
+      setProjectToDelete(null);
+      await loadStudioDrafts();
+    } finally {
+      setDeletingProject(false);
+    }
+  };
+
+  const handlePublishDraftVideo = async (video: CookingVideo) => {
+    setPublishingVideoId(video.id);
+    try {
+      await RecipeService.updateVideo(video.id, { status: 'published' });
+    } finally {
+      setPublishingVideoId(null);
     }
   };
 
@@ -119,10 +192,19 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('chef-upload-video')}
-            className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center gap-1.5"
+            className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
           >
             <Video className="w-4 h-4 text-amber-400" />
             <span>Upload Video</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigate('chef-upload-video', { openStudio: true })}
+            className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-2xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <Sliders className="w-4 h-4 text-amber-700" />
+            <span>Video Editing Studio</span>
           </button>
 
           <button
@@ -203,15 +285,6 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
           </h2>
 
           <div className="flex items-center gap-2">
-            {chefRecipes.length === 0 && onPublishStarterRecipes && (
-              <button
-                type="button"
-                onClick={onPublishStarterRecipes}
-                className="text-xs font-semibold text-amber-700 hover:text-amber-800 transition-colors"
-              >
-                + Publish Starter Chef Recipes
-              </button>
-            )}
             <button
               onClick={() => onNavigate('chef-my-recipes')}
               className="text-xs font-semibold text-stone-600 hover:text-stone-900 transition-colors flex items-center gap-1"
@@ -286,8 +359,8 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteRecipe(r.id, r.title)}
-                            className="p-1.5 text-red-500 hover:text-red-700 rounded-lg hover:bg-red-50"
+                            onClick={() => setRecipeToDelete({ id: r.id, title: r.title })}
+                            className="p-1.5 text-red-500 hover:text-red-700 rounded-lg hover:bg-red-50 cursor-pointer"
                             title="Delete Recipe"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -303,6 +376,136 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
         )}
       </div>
 
+      {/* Saved Video Editing Studio Drafts Section */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-serif-display text-xl sm:text-2xl font-bold text-stone-900">
+              Video Studio Projects &amp; Drafts ({studioDrafts.length})
+            </h2>
+            <p className="text-xs text-stone-500">
+              Multi-track timelines with cuts, captions, music, and AI edits saved automatically.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('chef-upload-video', { openStudio: true })}
+            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>New Studio Project</span>
+          </button>
+        </div>
+
+        {loadingDrafts ? (
+          <div className="p-6 rounded-2xl bg-white border border-stone-200 flex items-center gap-2 text-xs text-stone-500">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+            <span>Loading studio drafts...</span>
+          </div>
+        ) : studioDrafts.length === 0 ? (
+          <div className="p-8 rounded-3xl bg-white border border-stone-200/80 text-center space-y-2">
+            <Film className="w-6 h-6 text-amber-600 mx-auto" />
+            <p className="text-xs text-stone-600">
+              No saved video editing projects yet. Launch the Video Editing Studio to start editing with cuts, voiceovers, music, and captions.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {studioDrafts.map((proj) => (
+              <div key={proj.id} className="p-4 rounded-2xl bg-white border border-stone-200/80 shadow-2xs space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    {renamingProjectId === proj.id ? (
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <input
+                          type="text"
+                          value={renameDraftTitle}
+                          onChange={(e) => setRenameDraftTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveRenameProject(proj);
+                            if (e.key === 'Escape') setRenamingProjectId(null);
+                          }}
+                          className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-amber-400 bg-stone-50 focus:outline-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRenameProject(proj)}
+                          className="p-1.5 rounded-lg bg-amber-600 text-white cursor-pointer"
+                          title="Save title"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <h4 className="font-bold text-xs sm:text-sm text-stone-900 truncate flex-1">{proj.title}</h4>
+                    )}
+
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+                      {proj.cropRatio || '16:9'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500">
+                    <span>{proj.clips?.length || 0} clip(s)</span>
+                    <span>&bull;</span>
+                    <span>{proj.audioTracks?.length || 0} audio</span>
+                    <span>&bull;</span>
+                    <span>{proj.textOverlays?.length || 0} text</span>
+                  </div>
+
+                  <p className="text-[10px] text-stone-400 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <span>Updated {new Date(proj.updatedAt).toLocaleDateString()}</span>
+                  </p>
+                </div>
+
+                <div className="pt-2.5 border-t border-stone-100 flex flex-wrap items-center justify-between gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('chef-upload-video', { studioProject: proj, openStudio: true })}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Edit in Studio</span>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenamingProjectId(proj.id);
+                        setRenameDraftTitle(proj.title);
+                      }}
+                      className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg cursor-pointer"
+                      title="Rename project"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDuplicateDraft(proj)}
+                      className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg cursor-pointer"
+                      title="Duplicate project"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProjectToDelete(proj)}
+                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg cursor-pointer"
+                      title="Delete project"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Manage Videos Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -311,7 +514,7 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
           </h2>
           <button
             onClick={() => onNavigate('chef-upload-video')}
-            className="text-xs font-semibold text-amber-700 hover:text-amber-800 transition-colors flex items-center gap-1"
+            className="text-xs font-semibold text-amber-700 hover:text-amber-800 transition-colors flex items-center gap-1 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Upload New Tutorial</span>
@@ -323,7 +526,7 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
             <p className="text-xs text-stone-500">No cooking videos uploaded yet.</p>
             <button
               onClick={() => onNavigate('chef-upload-video')}
-              className="text-xs font-semibold text-amber-700 hover:underline"
+              className="text-xs font-semibold text-amber-700 hover:underline cursor-pointer"
             >
               Post your first step-by-step video guide
             </button>
@@ -339,8 +542,15 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute top-2 left-2 bg-stone-900/80 text-white text-[10px] font-semibold px-2 py-0.5 rounded">
-                    {video.durationMinutes}m
+                  <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                    <span className="bg-stone-900/80 text-white text-[10px] font-semibold px-2 py-0.5 rounded">
+                      {video.durationMinutes}m
+                    </span>
+                    {video.status === 'draft' && (
+                      <span className="bg-amber-500 text-stone-950 text-[10px] font-bold uppercase px-2 py-0.5 rounded">
+                        Draft
+                      </span>
+                    )}
                   </div>
                   {video.isPremium && (
                     <div className="absolute top-2 right-2 bg-amber-600 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded">
@@ -354,18 +564,42 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
                   <p className="text-[11px] text-stone-500 line-clamp-1">{video.description}</p>
                 </div>
 
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-xs text-stone-400">
+                <div className="pt-2 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-400">
                   <span>{(video.viewCount || 0).toLocaleString()} views</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setVideoDeleteError('');
-                      setVideoToDelete(video);
-                    }}
-                    className="text-red-500 hover:text-red-700 font-medium cursor-pointer"
-                  >
-                    Delete
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    {video.status === 'draft' && (
+                      <button
+                        type="button"
+                        disabled={publishingVideoId === video.id}
+                        onClick={() => handlePublishDraftVideo(video)}
+                        className="text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>{publishingVideoId === video.id ? 'Publishing...' : 'Publish'}</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('chef-upload-video', { editVideo: video, openStudio: true })}
+                      className="text-amber-700 hover:text-amber-900 font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sliders className="w-3 h-3" />
+                      <span>Edit in Studio</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVideoDeleteError('');
+                        setVideoToDelete(video);
+                      }}
+                      className="text-red-500 hover:text-red-700 font-medium cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -441,6 +675,82 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
                     <span>Delete Video</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Studio Project Delete Confirmation Modal */}
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-xs animate-in fade-in"
+          onClick={() => !deletingProject && setProjectToDelete(null)}
+        >
+          <div
+            className="bg-white rounded-3xl border border-stone-200 shadow-2xl max-w-md w-full p-6 space-y-5 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-1">
+              <h3 className="font-serif-display text-lg font-bold text-stone-900">Delete Studio Project?</h3>
+              <p className="text-xs text-stone-500">
+                Permanently delete &ldquo;{projectToDelete.title}&rdquo; and its cached studio timeline?
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={deletingProject}
+                onClick={() => setProjectToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 font-semibold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingProject}
+                onClick={handleConfirmDeleteProject}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                {deletingProject ? 'Deleting...' : 'Delete Project'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Recipe Delete Confirmation Modal */}
+      {recipeToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-xs animate-in fade-in"
+          onClick={() => !deletingRecipe && setRecipeToDelete(null)}
+        >
+          <div
+            className="bg-white rounded-3xl border border-stone-200 shadow-2xl max-w-md w-full p-6 space-y-5 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-1">
+              <h3 className="font-serif-display text-lg font-bold text-stone-900">Delete Recipe?</h3>
+              <p className="text-xs text-stone-500">
+                Are you sure you want to permanently delete &ldquo;{recipeToDelete.title}&rdquo;?
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={deletingRecipe}
+                onClick={() => setRecipeToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 font-semibold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingRecipe}
+                onClick={handleConfirmDeleteRecipe}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                {deletingRecipe ? 'Deleting...' : 'Delete Recipe'}
               </button>
             </div>
           </div>

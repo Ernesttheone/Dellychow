@@ -67,7 +67,7 @@ export const DeliChowSplashLoader: React.FC<DeliChowSplashLoaderProps> = ({ isLo
     <div
       role="status"
       aria-live="polite"
-      aria-label="Loading Deli Chow"
+      aria-label="Loading Delly Chow"
       className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#FAF7F2] dark:bg-[#0f0e0d] transition-opacity duration-350 ease-out ${
         fadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
@@ -79,13 +79,13 @@ export const DeliChowSplashLoader: React.FC<DeliChowSplashLoaderProps> = ({ isLo
           className="absolute -top-6 w-40 h-40 sm:w-44 sm:h-44 rounded-full bg-amber-500/20 blur-2xl animate-delichow-subtle-glow pointer-events-none"
         />
 
-        {/* Official Deli Chow Logo: scales in, draws utensils, sweeps light, bounces, then runs recoil-and-join loop while loading */}
+        {/* Official Delly Chow Logo: scales in, draws utensils, sweeps light, bounces, then runs recoil-and-join loop while loading */}
         <BrandLogo size="xl" variant={phase} />
 
         {/* Modern Brand Typography */}
         <div className="mt-6 text-center animate-delichow-wordmark-reveal">
           <span className="font-serif-display text-2xl sm:text-3xl font-bold tracking-[0.18em] text-stone-900 dark:text-stone-100 uppercase block">
-            DELI CHOW
+            DELLY CHOW
           </span>
           <span className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.26em] text-amber-700 dark:text-amber-400 block">
             Artisanal Kitchen

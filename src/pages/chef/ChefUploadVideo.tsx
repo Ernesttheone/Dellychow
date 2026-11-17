@@ -34,14 +34,18 @@ import {
   Radio,
   ImageIcon
 } from 'lucide-react';
-import { Recipe, CookingVideo } from '../../types';
+import { Recipe, CookingVideo, VideoStudioProject } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
 import { ASSET_IMAGES } from '../../assets/images';
 import { extractVideoMetadataAndThumbnail, uploadVideoToFirebaseStorage, validateVideoFile } from '../../lib/videoStorage';
+import { VideoEditingStudio, StudioPublishPayload } from '../../components/studio/VideoEditingStudio';
 
 interface ChefUploadVideoProps {
   recipes: Recipe[];
+  initialEditVideo?: CookingVideo | null;
+  initialStudioProject?: VideoStudioProject | null;
+  openStudioByDefault?: boolean;
   onBack: () => void;
   onSuccess: () => void;
   onPlayVideo?: (video: CookingVideo) => void;
@@ -49,11 +53,22 @@ interface ChefUploadVideoProps {
 
 export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   recipes,
+  initialEditVideo = null,
+  initialStudioProject = null,
+  openStudioByDefault = false,
   onBack,
   onSuccess,
   onPlayVideo
 }) => {
   const { currentUser, userProfile } = useAuth();
+
+  // Video Editing Studio Mode
+  const [studioMode, setStudioMode] = useState<boolean>(
+    Boolean(openStudioByDefault || initialStudioProject)
+  );
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(initialEditVideo?.id || null);
+  const [replaceOriginalTarget, setReplaceOriginalTarget] = useState<boolean>(false);
+  const [studioNotice, setStudioNotice] = useState<string | null>(null);
 
   // Wizard Step: 1 = Video, 2 = Details, 3 = Visibility, 4 = Publish / Complete
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
@@ -219,6 +234,37 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     }
     setIsCameraActive(false);
   };
+
+  // Sync route-level studio project or video editing context
+  useEffect(() => {
+    if (initialEditVideo) {
+      setEditingVideoId(initialEditVideo.id);
+      setTitle(initialEditVideo.title || '');
+      setDescription(initialEditVideo.description || '');
+      setCategory(initialEditVideo.category || 'Technique');
+      setThumbnailUrl(initialEditVideo.thumbnailUrl || ASSET_IMAGES.trufflePasta);
+      setDurationMinutes(initialEditVideo.durationMinutes || 15);
+      setIsPremium(Boolean(initialEditVideo.isPremium));
+      setRecipeId(initialEditVideo.recipeId || '');
+      if (initialEditVideo.videoUrl) {
+        setCustomVideoUrl(initialEditVideo.videoUrl);
+        setActiveMode('url');
+      }
+      if (openStudioByDefault) {
+        setStudioMode(true);
+      }
+    } else if (initialStudioProject) {
+      setTitle(initialStudioProject.title || '');
+      setDescription(initialStudioProject.description || '');
+      setCategory(initialStudioProject.category || 'Technique');
+      if (initialStudioProject.thumbnailUrl) {
+        setThumbnailUrl(initialStudioProject.thumbnailUrl);
+      }
+      setStudioMode(true);
+    } else if (openStudioByDefault) {
+      setStudioMode(true);
+    }
+  }, [initialEditVideo, initialStudioProject, openStudioByDefault]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -601,8 +647,49 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   // Step 3 Validation
   const canProceedToStep4 = confirmedOwnership;
 
-  // Final Confirmed Publish Handler
-  const handleConfirmPublish = async () => {
+  // Handshake when user finishes editing/exporting inside VideoEditingStudio
+  const handleStudioPublishReady = (payload: StudioPublishPayload) => {
+    if (videoPreviewUrl && videoPreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(videoPreviewUrl);
+    }
+
+    if (payload.title) setTitle(payload.title);
+    if (payload.description) setDescription(payload.description);
+    if (payload.category) setCategory(payload.category);
+    if (payload.thumbnailUrl) setThumbnailUrl(payload.thumbnailUrl);
+    if (payload.durationSec > 0) {
+      setHasManuallySetDuration(true);
+      setDurationMinutes(Math.max(1, Math.round(payload.durationSec / 60)));
+    }
+
+    setReplaceOriginalTarget(Boolean(payload.replaceOriginal && editingVideoId));
+
+    if (payload.videoBlob) {
+      const preview = URL.createObjectURL(payload.videoBlob);
+      setVideoBlob(payload.videoBlob);
+      setVideoPreviewUrl(preview);
+      setVideoFileName(payload.filename || 'dellychow_studio_edit.mp4');
+      setVideoFileSizeMB((payload.videoBlob.size / (1024 * 1024)).toFixed(1));
+      setActiveMode('upload');
+    } else if (payload.exportedUrl) {
+      setVideoBlob(null);
+      setVideoPreviewUrl(null);
+      setCustomVideoUrl(payload.exportedUrl);
+      setVideoFileName(payload.filename || 'dellychow_studio_edit.mp4');
+      setActiveMode('url');
+    }
+
+    setStudioMode(false);
+    setStudioNotice('Studio export loaded! Review details and publish or save as draft.');
+    if (payload.title.trim() && payload.description.trim()) {
+      setCurrentStep(3);
+    } else {
+      setCurrentStep(2);
+    }
+  };
+
+  // Final Confirmed Publish / Save Draft Handler
+  const handleConfirmPublish = async (saveStatus: 'published' | 'draft' = 'published') => {
     if (!currentUser) return;
     const isUrlSource = activeMode === 'url' && customVideoUrl.trim();
     if (!videoBlob && !isUrlSource) return;
@@ -613,19 +700,22 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     setErrorMsg('');
 
     try {
-      const newVideoId = RecipeService.generateVideoId();
+      const targetVideoId =
+        editingVideoId && replaceOriginalTarget
+          ? editingVideoId
+          : RecipeService.generateVideoId();
       let finalPublicUrl = '';
 
       if (isUrlSource) {
         finalPublicUrl = customVideoUrl.trim();
         setUploadProgress(70);
-        setProgressStatusText('Linking web video tutorial...');
+        setProgressStatusText('Linking edited video stream...');
       } else if (videoBlob) {
         const ext = videoBlob.type.includes('webm') ? '.webm' : videoBlob.type.includes('mov') ? '.mov' : '.mp4';
-        const filename = videoFileName || `video_${newVideoId}${ext}`;
+        const filename = videoFileName || `video_${targetVideoId}${ext}`;
 
         setProgressStatusText('Uploading video masterclass to Firebase Storage...');
-        const uploadResult = await uploadVideoToFirebaseStorage(videoBlob, filename, newVideoId, currentUser.uid, (pct) => {
+        const uploadResult = await uploadVideoToFirebaseStorage(videoBlob, filename, targetVideoId, currentUser.uid, (pct) => {
           setUploadProgress(15 + Math.round(pct * 0.75));
           setProgressStatusText(`Uploading video to Firebase Storage (${pct}%)...`);
         });
@@ -637,7 +727,11 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         finalPublicUrl = uploadResult.url;
       }
 
-      setProgressStatusText('Publishing masterclass to your chef profile...');
+      setProgressStatusText(
+        saveStatus === 'draft'
+          ? 'Saving video draft to your Chef Studio...'
+          : 'Publishing masterclass to your chef profile...'
+      );
       setUploadProgress(95);
 
       const videoData: Omit<CookingVideo, 'id' | 'createdAt'> = {
@@ -651,6 +745,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         durationMinutes: Number(durationMinutes) || 15,
         category: category.trim(),
         isPremium,
+        status: saveStatus,
         viewCount: 1,
         likesCount: 0
       };
@@ -680,17 +775,21 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         videoData.nutritionInfo = nut;
       }
 
-      await RecipeService.createVideo(videoData, newVideoId);
+      if (editingVideoId && replaceOriginalTarget) {
+        await RecipeService.updateVideo(editingVideoId, videoData);
+      } else {
+        await RecipeService.createVideo(videoData, targetVideoId);
+      }
 
       const created: CookingVideo = {
         ...videoData,
-        id: newVideoId,
+        id: targetVideoId,
         createdAt: new Date().toISOString()
       };
 
       setPublishedVideo(created);
       setUploadProgress(100);
-      setProgressStatusText('Published successfully!');
+      setProgressStatusText(saveStatus === 'draft' ? 'Saved as Draft!' : 'Published successfully!');
       setSubmitting(false);
 
     } catch (err: any) {
@@ -746,13 +845,42 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     setActiveMode('record');
   };
 
-  // Step labels for YouTube Studio Stepper
+  // Step labels for Studio Stepper
   const stepsMeta = [
-    { num: 1, title: 'Video Source', desc: 'Live camera or file' },
+    { num: 1, title: 'Video Source', desc: 'Record, upload or edit' },
     { num: 2, title: 'Video Details', desc: 'Title, thumb & tags' },
     { num: 3, title: 'Visibility', desc: 'Audience & recipe' },
     { num: 4, title: 'Publish', desc: 'Upload & preview' }
   ];
+
+  if (studioMode) {
+    return (
+      <VideoEditingStudio
+        initialProject={initialStudioProject || undefined}
+        initialVideoBlob={videoBlob}
+        initialVideoUrl={videoBlob ? null : (customVideoUrl || initialEditVideo?.videoUrl || null)}
+        initialTitle={title || initialEditVideo?.title || initialStudioProject?.title}
+        initialDescription={description || initialEditVideo?.description || initialStudioProject?.description}
+        initialCategory={category || initialEditVideo?.category || initialStudioProject?.category}
+        initialThumbnailUrl={
+          thumbnailUrl !== ASSET_IMAGES.trufflePasta
+            ? thumbnailUrl
+            : initialEditVideo?.thumbnailUrl || thumbnailUrl
+        }
+        onExit={() => {
+          setStudioMode(false);
+        }}
+        onPublishReady={handleStudioPublishReady}
+        onDraftSaved={(_proj, exportedUrl) => {
+          if (exportedUrl && !videoBlob) {
+            setCustomVideoUrl(exportedUrl);
+            setActiveMode('url');
+          }
+          setStudioNotice('Studio project saved to Drafts!');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="w-full max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-6">
@@ -872,6 +1000,23 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         </div>
       )}
 
+      {/* Studio Export Notice Banner */}
+      {studioNotice && (
+        <div className="p-3.5 bg-emerald-50 text-emerald-900 text-xs rounded-2xl border border-emerald-200 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{studioNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStudioNotice(null)}
+            className="text-emerald-700 font-bold hover:underline shrink-0 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* ========================================================
           STEP 1: SELECT VIDEO / LIVE RECORDING STUDIO
          ======================================================== */}
@@ -883,20 +1028,34 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
             <div>
               <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
                 <Film className="w-5 h-5 text-amber-600" />
-                <span>Step 1: Video Source & Recording</span>
+                <span>Step 1: Video Source &amp; Editing Studio</span>
               </h2>
               <p className="text-xs text-stone-500 mt-0.5">
-                Record live in-browser with your camera & mic, or choose a pre-recorded cooking video.
+                Record live in-browser, upload a cooking video, or launch the full Video Editing Studio.
               </p>
             </div>
 
-            {/* Live Camera State Indicator */}
-            {isCameraActive && (
-              <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-semibold shrink-0">
-                <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
-                <span>Live Studio On-Air</span>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* Live Camera State Indicator */}
+              {isCameraActive && (
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-semibold shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+                  <span>Live Studio On-Air</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  stopCameraStream();
+                  setStudioMode(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Open Video Editing Studio</span>
+              </button>
+            </div>
           </div>
 
           {/* Prominent Mode Switcher Tab Bar */}
@@ -1412,8 +1571,18 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
               </div>
 
               {customVideoUrl.trim() && (
-                <div className="pt-2 border-t border-stone-800 space-y-2">
-                  <p className="text-[11px] text-stone-400">Stream preview:</p>
+                <div className="pt-2 border-t border-stone-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-stone-400">Stream preview:</p>
+                    <button
+                      type="button"
+                      onClick={() => setStudioMode(true)}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>Open in Video Studio</span>
+                    </button>
+                  </div>
                   <div className="aspect-16/9 bg-black rounded-xl overflow-hidden border border-stone-800 max-h-56">
                     {customVideoUrl.includes('youtube.com') || customVideoUrl.includes('youtu.be') ? (
                       <iframe
@@ -1465,11 +1634,20 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   <p className="text-[11px] text-stone-400">
                     {videoFileSizeMB ? `${videoFileSizeMB} MB · ` : ''}
                     {durationMinutes ? `${durationMinutes}m duration · ` : ''}
-                    {activeMode === 'record' ? 'Studio Camera Recording' : 'Uploaded File'} · Ready for details
+                    {activeMode === 'record' ? 'Studio Camera Recording' : 'Uploaded File'} · Ready to edit or publish
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setStudioMode(true)}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Open in Video Studio</span>
+                  </button>
+
                   {activeMode === 'record' ? (
                     <button
                       type="button"
@@ -1644,7 +1822,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   value={thumbnailUrl}
                   onChange={(e) => setThumbnailUrl(e.target.value)}
                   placeholder="Or enter image URL"
-                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
+                  className="hidden md:block w-full text-xs px-3.5 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
                 />
               </div>
             </div>
@@ -1987,10 +2165,14 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
 
               <div className="space-y-1">
                 <h2 className="font-serif-display text-2xl font-bold text-stone-900">
-                  Masterclass Published Successfully!
+                  {publishedVideo.status === 'draft'
+                    ? 'Video Saved as Private Draft!'
+                    : 'Masterclass Published Successfully!'}
                 </h2>
                 <p className="text-xs sm:text-sm text-stone-500 max-w-md mx-auto">
-                  Your cooking video is now live on DellyChow and ready for food lovers worldwide.
+                  {publishedVideo.status === 'draft'
+                    ? 'Your video is safely saved as a private draft in your Chef Studio. Publish it whenever you are ready.'
+                    : 'Your cooking video is now live on DellyChow and ready for food lovers worldwide.'}
                 </p>
               </div>
 
@@ -2010,6 +2192,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   </h4>
                   <p className="text-[11px] text-stone-500 mt-0.5">
                     {publishedVideo.category} · {publishedVideo.durationMinutes}m · {publishedVideo.isPremium ? 'VIP' : 'Free'}
+                    {publishedVideo.status === 'draft' ? ' · Draft' : ''}
                   </p>
                 </div>
               </div>
@@ -2065,7 +2248,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   <span>Step 4: Review & Publish Masterclass</span>
                 </h2>
                 <p className="text-xs text-stone-500 mt-1">
-                  Verify your video summary before finalizing and streaming to DellyChow.
+                  Verify your video summary before publishing or saving as a private draft.
                 </p>
               </div>
 
@@ -2128,7 +2311,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                       <div>
                         <span className="text-stone-500 block text-[11px]">Video Source</span>
                         <span className="font-semibold text-stone-800">
-                          {activeMode === 'record' ? 'Live Camera Studio' : activeMode === 'url' ? 'Web URL' : videoFileName || 'Device File'}
+                          {activeMode === 'record' ? 'Live Camera Studio' : activeMode === 'url' ? 'Edited / Web URL' : videoFileName || 'Device File'}
                         </span>
                       </div>
                       {recipeId && (
@@ -2147,11 +2330,11 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   </div>
 
                   <p className="text-xs text-stone-500 leading-relaxed">
-                    By clicking <strong className="text-stone-700">"Publish Video Masterclass"</strong>, your video will be uploaded to DellyChow storage and linked to your chef profile.
+                    By clicking <strong className="text-stone-700">&ldquo;Publish Video Masterclass&rdquo;</strong>, your video will be published live on DellyChow, or you can save it as a private draft to publish later.
                   </p>
 
                   {/* Step 4 Actions */}
-                  <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+                  <div className="pt-4 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2.5">
                     <button
                       type="button"
                       onClick={() => setCurrentStep(3)}
@@ -2162,15 +2345,27 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                       <span>Back</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={handleConfirmPublish}
-                      disabled={submitting}
-                      className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      <Upload className="w-4 h-4" />
-                      <span>Publish Video Masterclass</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmPublish('draft')}
+                        disabled={submitting}
+                        className="px-4 py-2.5 rounded-xl border border-stone-300 bg-white hover:bg-stone-50 text-stone-800 font-semibold text-xs uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Clock className="w-4 h-4 text-amber-600" />
+                        <span>Save as Draft</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmPublish('published')}
+                        disabled={submitting}
+                        className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>{editingVideoId && replaceOriginalTarget ? 'Update & Publish' : 'Publish Video Masterclass'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
