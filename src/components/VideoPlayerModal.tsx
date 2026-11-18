@@ -109,6 +109,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     currentUser, 
     userProfile, 
     isSubscribedToChef, 
+    isFollowingChef,
+    toggleFollowChef,
     isVideoBookmarked, 
     toggleVideoBookmark, 
     setPendingAction,
@@ -154,7 +156,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   // Likes & Following State
   const [likes, setLikes] = useState<number>(0);
   const [hasLiked, setHasLiked] = useState<boolean>(false);
-  const [isFollowing, setIsFollowing] = useState<boolean>(false);
+  const isFollowing = isFollowingChef(video.authorId);
   const [notificationPref, setNotificationPref] = useState<'all' | 'personalized' | 'none'>('all');
   const [showNotificationMenu, setShowNotificationMenu] = useState<boolean>(false);
   const [followerCount, setFollowerCount] = useState<number>(0);
@@ -209,7 +211,6 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     if (video) {
       setLikes(video.likesCount || 0);
       setHasLiked(false);
-      setIsFollowing(false);
       setFollowerCount(0);
       setCommentInput('');
       setUnlockedInSession(false);
@@ -619,18 +620,17 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       return;
     }
 
-    const nextState = !isFollowing;
-    setIsFollowing(nextState);
-    const newCount = Math.max(0, followerCount + (nextState ? 1 : -1));
-    setFollowerCount(newCount);
-
-    if (video.authorId) {
-      try {
-        const chefDocRef = doc(db, 'users', video.authorId);
-        await updateDoc(chefDocRef, { followerCount: newCount });
-      } catch (err) {
-        console.warn('Could not update chef follower count:', err);
+    const prevFollowing = isFollowing;
+    try {
+      const nowFollowing = await toggleFollowChef(video.authorId, {
+        name: video.authorName,
+        photo: video.authorPhoto,
+      });
+      if (nowFollowing !== prevFollowing) {
+        setFollowerCount((prev) => Math.max(0, prev + (nowFollowing ? 1 : -1)));
       }
+    } catch (err) {
+      console.warn('Could not update chef follow status:', err);
     }
   };
 

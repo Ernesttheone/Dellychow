@@ -21,10 +21,12 @@ import {
   Scale,
   ShieldAlert,
   Sliders,
+  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
 import { BrandLogo } from './BrandLogo';
+import { UserAvatar } from './UserAvatar';
 
 interface DesktopSidebarProps {
   currentView: string;
@@ -45,8 +47,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onOpenAuthModal,
   onOpenSupportModal,
 }) => {
-  const { currentUser, userProfile, favourites, isAdmin } = useAuth();
+  const { currentUser, userProfile, favourites, followedChefs, isAdmin } = useAuth();
   const [libraryExpanded, setLibraryExpanded] = useState(true);
+  const [followingExpanded, setFollowingExpanded] = useState(true);
 
   const isChef = userProfile?.role === 'chef';
   const legalViews = ['legal', 'terms', 'privacy', 'guidelines', 'copyright', 'food-safety', 'cookies', 'reporting', 'contact'];
@@ -222,6 +225,86 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           </div>
         </div>
       )}
+
+      {/* Following Section (For both Food Lovers and Chefs) */}
+      <div className="pt-3 border-t border-stone-200/80 dark:border-stone-800 space-y-1">
+        {isExpandedView ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setFollowingExpanded(!followingExpanded)}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 cursor-pointer"
+            >
+              <span>
+                Following{followedChefs.length > 0 ? ` (${followedChefs.length})` : ''}
+              </span>
+              {followingExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+
+            {followingExpanded && (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => handleNav('following', true)}
+                  aria-current={currentView === 'following' ? 'page' : undefined}
+                  className={`w-full flex items-center justify-start gap-3.5 px-3 py-2 rounded-xl transition-colors cursor-pointer ${
+                    currentView === 'following'
+                      ? 'bg-amber-600/12 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 font-semibold'
+                      : 'text-stone-700 hover:bg-stone-200/60 dark:text-stone-300 dark:hover:bg-stone-800/70 font-medium'
+                  }`}
+                >
+                  <UserCheck className="w-5 h-5 shrink-0 stroke-[1.85]" />
+                  <span className="text-sm truncate">Following Chefs</span>
+                </button>
+
+                {currentUser && followedChefs.slice(0, 6).map((chef) => (
+                  <button
+                    key={chef.chefId}
+                    type="button"
+                    onClick={() => handleNav('chef-profile', false, { chefId: chef.chefId })}
+                    className="w-full flex items-center justify-start gap-3 px-3 py-1.5 rounded-xl text-stone-700 hover:bg-stone-200/60 dark:text-stone-300 dark:hover:bg-stone-800/70 transition-colors cursor-pointer"
+                    title={chef.chefName || 'Followed Chef'}
+                  >
+                    <UserAvatar
+                      src={chef.chefPhoto}
+                      seed={chef.chefId}
+                      name={chef.chefName || 'Chef'}
+                      size="xs"
+                      ring={false}
+                    />
+                    <span className="text-xs font-medium truncate">
+                      {chef.chefName || 'Chef'}
+                    </span>
+                  </button>
+                ))}
+
+                {currentUser && followedChefs.length === 0 && (
+                  <p className="px-3 py-1 text-[11px] text-stone-400">
+                    No followed chefs yet
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => handleNav('following', true)}
+            title="Following"
+            aria-current={currentView === 'following' ? 'page' : undefined}
+            className={`w-full flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl transition-colors cursor-pointer ${
+              currentView === 'following'
+                ? 'bg-amber-600/12 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 font-semibold'
+                : 'text-stone-700 hover:bg-stone-200/60 dark:text-stone-300 dark:hover:bg-stone-800/70 font-medium'
+            }`}
+          >
+            <UserCheck className="w-5 h-5 shrink-0 stroke-[1.85]" />
+            <span className="text-[10px] text-center leading-tight line-clamp-1">
+              Following
+            </span>
+          </button>
+        )}
+      </div>
 
       {/* 3. Expandable "Your Kitchen" Section */}
       <div className="pt-3 border-t border-stone-200/80 dark:border-stone-800 space-y-1">

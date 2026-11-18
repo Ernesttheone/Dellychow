@@ -269,6 +269,38 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "status"]
+    },
+    "RecipeRating": {
+      "title": "RecipeRating",
+      "description": "Star rating (1 to 5) submitted by an authenticated user for a recipe.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipeId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "rating": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "recipeId", "userId", "rating"]
+    },
+    "ChefFollow": {
+      "title": "ChefFollow",
+      "description": "Chef followed by a food lover or another chef.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "chefId": { "type": "string" },
+        "chefName": { "type": "string" },
+        "chefPhoto": { "type": "string" },
+        "chefSpecialty": { "type": "string" },
+        "source": { "type": "string", "enum": ["manual", "vip_subscription", "masterclass"] },
+        "notificationPreference": { "type": "string", "enum": ["all", "personalized", "none"] },
+        "followedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "chefId", "followedAt"]
     }
   },
   "firestore": {
@@ -296,9 +328,17 @@
       "schema": "UserNotification",
       "description": "User's notification alerts."
     },
+    "/users/{userId}/following/{chefId}": {
+      "schema": "ChefFollow",
+      "description": "Chefs and creators followed by the user."
+    },
     "/recipes/{recipeId}/comments/{commentId}": {
       "schema": "Comment",
       "description": "User comments on recipes."
+    },
+    "/recipes/{recipeId}/ratings/{ratingUserId}": {
+      "schema": "RecipeRating",
+      "description": "User 1-5 star ratings on recipes."
     },
     "/videos/{videoId}/comments/{commentId}": {
       "schema": "Comment",

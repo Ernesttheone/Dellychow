@@ -18,7 +18,7 @@ import {
   ShoppingCart,
   Flag
 } from 'lucide-react';
-import { Recipe, Comment } from '../types';
+import { Recipe, RecipeRating, Comment } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
 import { CookingTimer } from '../components/CookingTimer';
@@ -26,6 +26,8 @@ import { UserAvatar } from '../components/UserAvatar';
 import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
 import { extractStepMinutes } from '../lib/recipeTimeUtils';
 import { ReportTarget } from '../components/ReportContentModal';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface RecipeDetailPageProps {
   recipe: Recipe;
@@ -54,7 +56,9 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   const [activeTimerMinutes, setActiveTimerMinutes] = useState<number | null>(null);
   const [activeTimerLabel, setActiveTimerLabel] = useState<string>('Chef Stated Timer');
 
-  // Rating state
+  // Live recipe & rating state
+  const [liveRecipe, setLiveRecipe] = useState<Recipe>(recipe);
+  const [recipeRatings, setRecipeRatings] = useState<RecipeRating[]>([]);
   const [userRating, setUserRating] = useState<number>(0);
   const [hoverRating, setHoverRating] = useState<number>(0);
   const [hasRated, setHasRated] = useState(false);
@@ -85,6 +89,44 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
     return () => { isMounted = false; };
   }, [recipe.videoUrl, recipe.id]);
 
+  // Sync live recipe document (for real-time ratingAverage / ratingCount updates)
+  useEffect(() => {
+    setLiveRecipe(recipe);
+    const unsubDoc = onSnapshot(doc(db, 'recipes', recipe.id), (snap) => {
+      if (snap.exists()) {
+        setLiveRecipe({ id: snap.id, ...(snap.data() as Omit<Recipe, 'id'>) });
+      }
+    }, () => {});
+    return () => unsubDoc();
+  }, [recipe]);
+
+  // Listen to per-user recipe ratings in real time
+  useEffect(() => {
+    const unsubRatings = RecipeService.listenToRecipeRatings(recipe.id, (loadedRatings) => {
+      setRecipeRatings(loadedRatings);
+    });
+    return () => unsubRatings();
+  }, [recipe.id]);
+
+  // Sync current authenticated user's saved rating for this recipe
+  useEffect(() => {
+    if (!currentUser) {
+      setUserRating(0);
+      setHasRated(false);
+      return;
+    }
+    const fromSub = recipeRatings.find((r) => r.userId === currentUser.uid)?.rating;
+    const fromProfile = userProfile?.recipeRatings?.[recipe.id];
+    const resolvedScore = fromSub || fromProfile || 0;
+    if (resolvedScore > 0) {
+      setUserRating(resolvedScore);
+      setHasRated(true);
+    } else {
+      setUserRating(0);
+      setHasRated(false);
+    }
+  }, [currentUser, recipeRatings, userProfile?.recipeRatings, recipe.id]);
+
   // Listen to comments in real-time
   useEffect(() => {
     const unsubscribe = RecipeService.listenToComments(recipe.id, (loadedComments) => {
@@ -92,6 +134,14 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
     });
     return () => unsubscribe();
   }, [recipe.id]);
+
+  const ratingCount = recipeRatings.length > 0
+    ? recipeRatings.length
+    : (typeof liveRecipe.ratingCount === 'number' ? liveRecipe.ratingCount : 0);
+
+  const averageRating = recipeRatings.length > 0
+    ? Number((recipeRatings.reduce((sum, r) => sum + r.rating, 0) / recipeRatings.length).toFixed(1))
+    : (ratingCount > 0 && typeof liveRecipe.ratingAverage === 'number' ? liveRecipe.ratingAverage : 0);
 
   const bookmarked = isRecipeBookmarked(recipe.id);
   const isPremiumLocked = recipe.isPremium && !isSubscribedToChef(recipe.authorId);
@@ -110,24 +160,31 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   const handleRate = async (score: number) => {
     if (!currentUser) {
       setPendingAction({
-        type: 'like_recipe',
+        type: 'rate_recipe',
         recipeId: recipe.id,
+        rating: score,
         recipeTitle: recipe.title
       });
       if (onOpenAuthModal) onOpenAuthModal('login', 'user');
       return;
     }
-    if (hasRated || ratingSubmitting) return;
+    if (ratingSubmitting) return;
 
-    setUserRating(score);
+    const clamped = Math.min(5, Math.max(1, Math.round(score)));
+    setUserRating(clamped);
     setRatingSubmitting(true);
     try {
-      await RecipeService.submitRating(
+      const result = await RecipeService.rateRecipe(
         recipe.id,
-        recipe.ratingAverage || 5.0,
-        score,
-        recipe.ratingCount || 1
+        currentUser.uid,
+        clamped,
+        userProfile?.displayName || currentUser.displayName || 'Food Explorer'
       );
+      setLiveRecipe((prev) => ({
+        ...prev,
+        ratingAverage: result.average,
+        ratingCount: result.count,
+      }));
       setHasRated(true);
     } catch (err) {
       console.error("Failed to submit rating:", err);
@@ -266,8 +323,10 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
             <span className="capitalize">{recipe.category}</span>
             <span aria-hidden="true">·</span>
             <span className="flex items-center gap-1 font-semibold text-stone-800 tabular-nums">
-              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-              {(recipe.ratingAverage || 5.0).toFixed(1)} ({recipe.ratingCount || 1} ratings)
+              <Star className={`w-3.5 h-3.5 ${ratingCount > 0 ? 'text-amber-500 fill-amber-500' : 'text-stone-400'}`} />
+              {ratingCount > 0
+                ? `${averageRating.toFixed(1)} (${ratingCount} ${ratingCount === 1 ? 'rating' : 'ratings'})`
+                : '0.0 (No ratings yet)'}
             </span>
           </div>
 
@@ -578,14 +637,28 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
 
           {/* Interactive Rating Section */}
           <div className="p-6 rounded-3xl bg-white border border-stone-200/80 shadow-xs space-y-4">
-            <h4 className="font-serif-display text-lg font-bold text-stone-900">
-              Rate This Culinary Creation
-            </h4>
-            <p className="text-xs text-stone-500">
-              Share your score with the chef and DellyChow cooking community:
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
+              <div>
+                <h4 className="font-serif-display text-lg font-bold text-stone-900">
+                  Rate This Culinary Creation
+                </h4>
+                <p className="text-xs text-stone-500">
+                  Share your 1 to 5 star score with the chef and DellyChow cooking community:
+                </p>
+              </div>
 
-            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-amber-50 border border-amber-200/70 shrink-0">
+                <Star className={`w-4 h-4 ${ratingCount > 0 ? 'text-amber-500 fill-amber-500' : 'text-stone-400'}`} />
+                <span className="text-sm font-bold text-stone-900 tabular-nums">
+                  {ratingCount > 0 ? averageRating.toFixed(1) : '0.0'}
+                </span>
+                <span className="text-xs text-stone-500 tabular-nums">
+                  / 5 ({ratingCount} {ratingCount === 1 ? 'rating' : 'ratings'})
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
@@ -593,8 +666,9 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                   onMouseEnter={() => setHoverRating(star)}
                   onMouseLeave={() => setHoverRating(0)}
                   onClick={() => handleRate(star)}
-                  disabled={hasRated || !currentUser}
-                  className="p-1 hover:scale-110 transition-transform focus:outline-none disabled:opacity-75"
+                  disabled={ratingSubmitting}
+                  aria-label={`Rate ${star} out of 5 stars`}
+                  className="p-1 hover:scale-110 transition-transform focus:outline-none disabled:opacity-60 cursor-pointer"
                 >
                   <Star 
                     className={`w-7 h-7 ${
@@ -606,7 +680,13 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                 </button>
               ))}
               <span className="text-xs font-semibold text-stone-700 ml-2">
-                {hasRated ? 'Thank you for your rating!' : !currentUser ? 'Sign in to rate' : 'Tap a star'}
+                {ratingSubmitting
+                  ? 'Saving your rating...'
+                  : hasRated
+                  ? `You rated this ${userRating}/5 stars (tap a star to update)`
+                  : !currentUser
+                  ? 'Sign in to rate (1–5 stars)'
+                  : 'Tap a star to rate (1–5)'}
               </span>
             </div>
           </div>

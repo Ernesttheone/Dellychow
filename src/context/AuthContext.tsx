@@ -31,6 +31,7 @@ import {
   Recipe,
   CookingVideo,
   VideoFavourite,
+  ChefFollow,
   PendingAction,
   UserNotification,
   LegalAcceptanceRecord,
@@ -61,6 +62,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   activeSubscriptions: Subscription[];
+  followedChefs: ChefFollow[];
   favourites: Favourite[];
   videoFavourites: VideoFavourite[];
   notifications: UserNotification[];
@@ -76,8 +78,27 @@ interface AuthContextType {
   setPendingAction: (action: PendingAction | null) => void;
   executePendingAction: (actionToRun?: PendingAction) => Promise<void>;
   isSubscribedToChef: (chefId: string) => boolean;
+  isFollowingChef: (chefId: string) => boolean;
   isRecipeBookmarked: (recipeId: string) => boolean;
   isVideoBookmarked: (videoId: string) => boolean;
+  followChef: (
+    chefId: string,
+    chefDetails?: {
+      name?: string;
+      photo?: string;
+      specialty?: string;
+      source?: 'manual' | 'vip_subscription' | 'masterclass';
+    }
+  ) => Promise<void>;
+  unfollowChef: (chefId: string) => Promise<void>;
+  toggleFollowChef: (
+    chefId: string,
+    chefDetails?: {
+      name?: string;
+      photo?: string;
+      specialty?: string;
+    }
+  ) => Promise<boolean>;
   createAccount: (
     email: string,
     password: string,
@@ -122,6 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSubscriptions, setActiveSubscriptions] = useState<Subscription[]>([]);
+  const [followedChefs, setFollowedChefs] = useState<ChefFollow[]>([]);
   const [favourites, setFavourites] = useState<Favourite[]>([]);
   const [videoFavourites, setVideoFavourites] = useState<VideoFavourite[]>([]);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
@@ -209,6 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setUserProfile(null);
         setActiveSubscriptions([]);
+        setFollowedChefs([]);
         setFavourites([]);
         setLoading(false);
       }
@@ -286,6 +309,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  // Listen for chefs followed by the current user (food lover or chef)
+  useEffect(() => {
+    if (!currentUser) {
+      setFollowedChefs([]);
+      return;
+    }
+
+    const profileList = Array.isArray(userProfile?.followedChefs) ? userProfile.followedChefs : [];
+    const followingRef = collection(db, 'users', currentUser.uid, 'following');
+
+    const unsubscribe = onSnapshot(followingRef, (snapshot) => {
+      const subItems: ChefFollow[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as ChefFollow;
+        subItems.push({
+          ...data,
+          id: docSnap.id,
+          chefId: data.chefId || docSnap.id,
+        });
+      });
+
+      const mergedMap = new Map<string, ChefFollow>();
+      for (const f of profileList) {
+        if (f?.chefId) mergedMap.set(f.chefId, f);
+      }
+      for (const f of subItems) {
+        if (f?.chefId) mergedMap.set(f.chefId, f);
+      }
+      const merged = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.followedAt || 0).getTime() - new Date(a.followedAt || 0).getTime()
+      );
+      setFollowedChefs(merged);
+    }, () => {
+      // Fallback to followedChefs stored on the user profile document if subcollection rules are not yet deployed
+      const sorted = [...profileList].sort(
+        (a, b) => new Date(b.followedAt || 0).getTime() - new Date(a.followedAt || 0).getTime()
+      );
+      setFollowedChefs(sorted);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, userProfile?.followedChefs]);
 
   // Feature 3: Listen for notifications for the user in real-time
   useEffect(() => {
@@ -692,8 +758,149 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return activeSubscriptions.some(sub => sub.chefId === chefId && sub.status === 'active');
   };
 
+  const isFollowingChef = (chefId: string): boolean => {
+    if (!currentUser || !chefId) return false;
+    return followedChefs.some(f => f.chefId === chefId);
+  };
+
   const isVideoBookmarked = (videoId: string): boolean => {
     return videoFavourites.some(f => f.videoId === videoId);
+  };
+
+  const followChef = async (
+    chefId: string,
+    chefDetails?: {
+      name?: string;
+      photo?: string;
+      specialty?: string;
+      source?: 'manual' | 'vip_subscription' | 'masterclass';
+    }
+  ): Promise<void> => {
+    if (!currentUser) {
+      throw new Error('AUTH_REQUIRED');
+    }
+    if (!chefId || chefId === currentUser.uid) return;
+
+    const userDocRef = doc(db, 'users', currentUser.uid);
+    const followRef = doc(db, 'users', currentUser.uid, 'following', chefId);
+
+    try {
+      const existingInProfile = followedChefs.find((f) => f.chefId === chefId);
+      let resolvedName = chefDetails?.name || '';
+      let resolvedPhoto = chefDetails?.photo || '';
+      let resolvedSpecialty = chefDetails?.specialty || '';
+
+      if (!resolvedName || !resolvedPhoto) {
+        try {
+          const chefSnap = await getDoc(doc(db, 'users', chefId));
+          if (chefSnap.exists()) {
+            const chefData = chefSnap.data() as UserProfile;
+            resolvedName = resolvedName || chefData.displayName || 'Chef';
+            resolvedPhoto = resolvedPhoto || chefData.photoURL || '';
+            resolvedSpecialty = resolvedSpecialty || chefData.specialty || '';
+          }
+        } catch {
+          // Continue with provided metadata
+        }
+      }
+
+      const now = new Date().toISOString();
+      const followData: ChefFollow = {
+        id: chefId,
+        chefId,
+        userId: currentUser.uid,
+        chefName: resolvedName || existingInProfile?.chefName || 'Chef',
+        chefPhoto: resolvedPhoto || existingInProfile?.chefPhoto || '',
+        chefSpecialty: resolvedSpecialty || existingInProfile?.chefSpecialty || '',
+        source: chefDetails?.source || existingInProfile?.source || 'manual',
+        notificationPreference: existingInProfile?.notificationPreference || 'all',
+        followedAt: existingInProfile?.followedAt || now,
+      };
+
+      const updatedList: ChefFollow[] = [
+        followData,
+        ...followedChefs.filter((f) => f.chefId !== chefId),
+      ];
+
+      setFollowedChefs(updatedList);
+      await updateDoc(userDocRef, {
+        followedChefs: updatedList,
+        updatedAt: now,
+      });
+
+      // Best-effort sync to subcollection
+      setDoc(followRef, followData, { merge: true }).catch(() => {});
+
+      if (!existingInProfile) {
+        try {
+          const chefDocRef = doc(db, 'users', chefId);
+          const chefSnap = await getDoc(chefDocRef);
+          if (chefSnap.exists()) {
+            const currentCount = chefSnap.data().followerCount || 0;
+            await updateDoc(chefDocRef, { followerCount: currentCount + 1 });
+          }
+        } catch {
+          // Silently continue if follower count cannot be updated
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${currentUser.uid}`);
+    }
+  };
+
+  const unfollowChef = async (chefId: string): Promise<void> => {
+    if (!currentUser || !chefId) return;
+    const userDocRef = doc(db, 'users', currentUser.uid);
+    const followRef = doc(db, 'users', currentUser.uid, 'following', chefId);
+
+    try {
+      const wasFollowing = followedChefs.some((f) => f.chefId === chefId);
+      const updatedList = followedChefs.filter((f) => f.chefId !== chefId);
+      setFollowedChefs(updatedList);
+
+      await updateDoc(userDocRef, {
+        followedChefs: updatedList,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Best-effort delete from subcollection
+      deleteDoc(followRef).catch(() => {});
+
+      if (wasFollowing) {
+        try {
+          const chefDocRef = doc(db, 'users', chefId);
+          const chefSnap = await getDoc(chefDocRef);
+          if (chefSnap.exists()) {
+            const currentCount = chefSnap.data().followerCount || 0;
+            await updateDoc(chefDocRef, { followerCount: Math.max(0, currentCount - 1) });
+          }
+        } catch {
+          // Silently continue
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${currentUser.uid}`);
+    }
+  };
+
+  const toggleFollowChef = async (
+    chefId: string,
+    chefDetails?: {
+      name?: string;
+      photo?: string;
+      specialty?: string;
+    }
+  ): Promise<boolean> => {
+    if (!currentUser) {
+      throw new Error('AUTH_REQUIRED');
+    }
+    if (isFollowingChef(chefId)) {
+      await unfollowChef(chefId);
+      return false;
+    } else {
+      await followChef(chefId, { ...chefDetails, source: 'manual' });
+      return true;
+    }
   };
 
   const toggleBookmark = async (recipe: Recipe): Promise<boolean> => {
@@ -803,17 +1010,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (act.type === 'like_recipe') {
         await RecipeService.likeRecipe(act.recipeId, 0);
         setPendingToast('You liked this recipe!');
+      } else if (act.type === 'rate_recipe') {
+        await RecipeService.rateRecipe(
+          act.recipeId,
+          currentUser.uid,
+          act.rating,
+          userProfile?.displayName || currentUser.displayName || 'Food Explorer'
+        );
+        setPendingToast(`Rated recipe ${act.rating}/5 stars!`);
       } else if (act.type === 'follow_chef') {
-        try {
-          const chefDocRef = doc(db, 'users', act.chefId);
-          const snap = await getDoc(chefDocRef);
-          if (snap.exists()) {
-            const count = snap.data().followerCount || 0;
-            await updateDoc(chefDocRef, { followerCount: count + 1 });
-          }
-        } catch {
-          // ignore
-        }
+        await followChef(act.chefId, { name: act.chefName, source: 'manual' });
         setPendingToast(`You are now following ${act.chefName}!`);
       } else if (act.type === 'bookmark_video') {
         await toggleVideoBookmark(act.video);
@@ -858,6 +1064,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       await setDoc(newSubRef, subData);
+
+      // Automatically follow the chef when paying for VIP access
+      await followChef(chefId, { name: chefName, source: 'vip_subscription' }).catch(() => {});
 
       try {
         const chefDocRef = doc(db, 'users', chefId);
@@ -925,6 +1134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         isAdmin,
         activeSubscriptions,
+        followedChefs,
         favourites,
         videoFavourites,
         notifications,
@@ -940,8 +1150,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPendingAction,
         executePendingAction,
         isSubscribedToChef,
+        isFollowingChef,
         isRecipeBookmarked,
         isVideoBookmarked,
+        followChef,
+        unfollowChef,
+        toggleFollowChef,
         createAccount,
         login,
         signInWithGoogle,

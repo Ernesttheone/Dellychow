@@ -42,7 +42,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
   onSelectChef,
   onOpenAuthModal
 }) => {
-  const { currentUser, userProfile, activeSubscriptions, cancelSubscription, isSubscribedToChef } = useAuth();
+  const { currentUser, userProfile, activeSubscriptions, cancelSubscription, isSubscribedToChef, followChef } = useAuth();
   const [selectedChatChefId, setSelectedChatChefId] = useState<string | null>(null);
 
   // VIP Masterclasses data
@@ -169,6 +169,14 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
         cookingSkillLevel: skillLevel,
         dietaryNotes: dietaryNotes.trim() || undefined
       });
+
+      // Automatically follow the chef when paying/enrolling in VIP classes
+      await followChef(selectedMasterclass.chefId, {
+        name: selectedMasterclass.chefName,
+        photo: selectedMasterclass.chefPhoto,
+        specialty: selectedMasterclass.chefSpecialty,
+        source: 'masterclass',
+      }).catch(() => {});
 
       // Successful write to Firestore: now and only now display as confirmed
       setConfirmedRegistration(reg);

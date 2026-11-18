@@ -23,6 +23,7 @@ import { AccountPage } from './pages/AccountPage';
 import { UserProfilePage } from './pages/UserProfilePage';
 import { ShoppingListsPage } from './pages/ShoppingListsPage';
 import { ChallengesPage } from './pages/ChallengesPage';
+import { FollowingPage } from './pages/FollowingPage';
 import { AddIngredientsModal } from './components/shopping/AddIngredientsModal';
 
 import { ChefDashboard } from './pages/chef/ChefDashboard';
@@ -612,6 +613,23 @@ function AppContent() {
             onRequestSubscribe={handleOpenSubscribe}
             onSelectChef={handleSelectChef}
             onOpenAuthModal={handleOpenAuthModal}
+          />
+        )}
+
+        {currentView === 'following' && (
+          <FollowingPage
+            recipes={publicRecipes}
+            videos={publicVideos}
+            onSelectRecipe={handleSelectRecipe}
+            onPlayVideo={(video) => {
+              setActiveVideoModal(video);
+              recordWatchedVideoOffline(video);
+            }}
+            onSelectChef={handleSelectChef}
+            onRequestSubscribe={handleOpenSubscribe}
+            onNavigate={handleNavigate}
+            onOpenAuthModal={handleOpenAuthModal}
+            onShareVideo={handleShareVideo}
           />
         )}
 

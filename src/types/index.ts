@@ -55,6 +55,8 @@ export interface UserProfile {
   perks?: string;
   subscriberCount?: number;
   followerCount?: number;
+  followedChefs?: ChefFollow[];
+  recipeRatings?: Record<string, number>;
   accountStatus?: 'active' | 'restricted' | 'suspended' | 'pending_deletion';
   restrictionReason?: string;
   ageGroup?: 'under_13' | 'teen_13_17' | 'adult_18_plus';
@@ -123,9 +125,24 @@ export interface CookingVideo {
   updatedAt?: string;
 }
 
+export interface RecipeRating {
+  id: string;
+  recipeId: string;
+  userId: string;
+  userName?: string;
+  rating: number; // 1 to 5
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface ChefFollow {
+  id?: string;
   chefId: string;
   userId: string;
+  chefName?: string;
+  chefPhoto?: string;
+  chefSpecialty?: string;
+  source?: 'manual' | 'vip_subscription' | 'masterclass';
   notificationPreference: 'all' | 'personalized' | 'none';
   followedAt: string;
 }
@@ -463,6 +480,7 @@ export type PendingAction =
   | { type: 'comment_video'; videoId: string; content: string; targetTitle?: string }
   | { type: 'like_video'; videoId: string; videoTitle?: string }
   | { type: 'like_recipe'; recipeId: string; recipeTitle?: string }
+  | { type: 'rate_recipe'; recipeId: string; rating: number; recipeTitle?: string }
   | { type: 'follow_chef'; chefId: string; chefName: string }
   | { type: 'bookmark_video'; video: CookingVideo }
   | { type: 'watch_video'; video: CookingVideo }

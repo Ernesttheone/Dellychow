@@ -87,6 +87,16 @@ service cloud.firestore {
         allow update: if isOwner(userId) || isAdmin();
         allow delete: if isOwner(userId) || isAdmin();
       }
+
+      // Chefs and Creators followed by this user
+      match /following/{chefId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if (isOwner(userId) || isAdmin())
+          && isValidId(chefId)
+          && incoming().userId == userId
+          && incoming().chefId == chefId;
+        allow delete: if isOwner(userId) || isAdmin();
+      }
     }
 
     // Recipes
@@ -114,6 +124,20 @@ service cloud.firestore {
           && incoming().userId == request.auth.uid
           && incoming().content is string && incoming().content.size() > 0 && incoming().content.size() <= 2000;
         allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
+      }
+
+      // Recipe Star Ratings (1 to 5 stars per authenticated user)
+      match /ratings/{ratingUserId} {
+        allow read: if true;
+        allow create, update: if isSignedIn()
+          && isValidId(ratingUserId)
+          && ratingUserId == request.auth.uid
+          && incoming().userId == request.auth.uid
+          && incoming().recipeId == recipeId
+          && incoming().rating is int
+          && incoming().rating >= 1
+          && incoming().rating <= 5;
+        allow delete: if isSignedIn() && (ratingUserId == request.auth.uid || isAdmin());
       }
     }
 

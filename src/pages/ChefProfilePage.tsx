@@ -54,11 +54,11 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   onOpenAuthModal,
   onReportContent
 }) => {
-  const { currentUser, userProfile, isSubscribedToChef, setPendingAction, blockedUserIds, blockUser, unblockUser } = useAuth();
+  const { currentUser, userProfile, isSubscribedToChef, isFollowingChef, toggleFollowChef, setPendingAction, blockedUserIds, blockUser, unblockUser } = useAuth();
   const [chefProfile, setChefProfile] = useState<UserProfile | null>(null);
   const [loadingChef, setLoadingChef] = useState(true);
-  const [isFollowing, setIsFollowing] = useState(false);
   const [activeTab, setActiveTab] = useState<'recipes' | 'videos' | 'community' | 'reviews'>('recipes');
+  const isFollowing = isFollowingChef(chefId);
 
   // Link Sharing System state
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -174,13 +174,17 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
       return;
     }
     if (!chefProfile) return;
-    const nextState = !isFollowing;
-    setIsFollowing(nextState);
+    const prevFollowed = isFollowing;
     try {
-      const chefDocRef = doc(db, 'users', chefId);
-      const newCount = (chefProfile.followerCount || 0) + (nextState ? 1 : -1);
-      await updateDoc(chefDocRef, { followerCount: Math.max(0, newCount) });
-      setChefProfile(prev => prev ? ({ ...prev, followerCount: Math.max(0, newCount) }) : null);
+      const nowFollowing = await toggleFollowChef(chefId, {
+        name: displayName,
+        photo: avatarUrl,
+        specialty: chefProfile.specialty,
+      });
+      if (nowFollowing !== prevFollowed) {
+        const delta = nowFollowing ? 1 : -1;
+        setChefProfile(prev => prev ? ({ ...prev, followerCount: Math.max(0, (prev.followerCount || 0) + delta) }) : null);
+      }
     } catch {
       // Continue
     }

@@ -24,6 +24,7 @@ import {
   Compass,
   Scale,
   Sliders,
+  UserCheck,
 } from 'lucide-react';
 import { UserRole, CookingVideo, Recipe } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -64,6 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     userProfile,
     signOut,
     favourites,
+    followedChefs,
     notifications,
     unreadNotificationCount,
     markNotificationAsRead,
@@ -160,6 +162,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'home', label: 'Home', icon: Home },
     { id: 'explore', label: 'Explore Recipes', icon: Compass },
     { id: 'videos', label: 'Video Classes', icon: Video },
+    {
+      id: 'following',
+      label: followedChefs.length > 0 ? `Following (${followedChefs.length})` : 'Following',
+      icon: UserCheck,
+    },
     { id: 'challenges', label: 'Cooking Challenges', icon: Trophy },
     { id: 'shopping-lists', label: 'Shopping Lists', icon: ShoppingCart },
     {

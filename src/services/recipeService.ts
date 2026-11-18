@@ -24,6 +24,7 @@ import {
 } from '../lib/chatTimestamp';
 import { 
   Recipe, 
+  RecipeRating,
   CookingVideo, 
   Comment, 
   VideoComment, 
@@ -96,8 +97,8 @@ export const RecipeService = {
     const fullRecipe = cleanUndefined({
       ...recipe,
       status: recipe.status || 'published',
-      ratingAverage: recipe.ratingAverage || 5.0,
-      ratingCount: recipe.ratingCount || 1,
+      ratingAverage: recipe.ratingAverage ?? 0,
+      ratingCount: recipe.ratingCount ?? 0,
       createdAt: new Date().toISOString()
     });
     try {
@@ -133,16 +134,149 @@ export const RecipeService = {
     }
   },
 
-  // Rate a recipe
+  // Listen to per-user recipe star ratings in real time
+  listenToRecipeRatings(recipeId: string, callback: (ratings: RecipeRating[]) => void) {
+    const ratingsRef = collection(db, 'recipes', recipeId, 'ratings');
+    return onSnapshot(ratingsRef, (snapshot) => {
+      const items: RecipeRating[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push({ id: docSnap.id, ...(docSnap.data() as Omit<RecipeRating, 'id'>) });
+      });
+      items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      callback(items);
+    }, () => {
+      // Gracefully fall back to aggregate recipe rating + userProfile.recipeRatings if subcollection rules are not yet deployed
+      callback([]);
+    });
+  },
+
+  // Rate a recipe (1 to 5 stars, one persistent rating per authenticated user, recalculates average)
+  async rateRecipe(
+    recipeId: string,
+    userId: string,
+    rating: number,
+    userName?: string
+  ): Promise<{ average: number; count: number; userRating: number }> {
+    const score = Math.min(5, Math.max(1, Math.round(rating)));
+    const now = new Date().toISOString();
+    const userDocRef = doc(db, 'users', userId);
+    const recipeDocRef = doc(db, 'recipes', recipeId);
+
+    // 1. Read user's prior rating (from users/{userId}.recipeRatings) and recipe's current aggregate
+    let prevUserScore = 0;
+    let existingUserRatings: Record<string, number> = {};
+    try {
+      const userSnap = await getDoc(userDocRef);
+      if (userSnap.exists()) {
+        existingUserRatings = (userSnap.data().recipeRatings as Record<string, number>) || {};
+        prevUserScore = existingUserRatings[recipeId] || 0;
+      }
+    } catch {
+      // Continue
+    }
+
+    // 2. Try writing to recipes/{recipeId}/ratings/{userId} subcollection
+    let subcollectionSaved = false;
+    try {
+      const ratingDocRef = doc(db, 'recipes', recipeId, 'ratings', userId);
+      const existingRatingSnap = await getDoc(ratingDocRef);
+      await setDoc(ratingDocRef, cleanUndefined({
+        id: userId,
+        recipeId,
+        userId,
+        userName: userName || 'Food Explorer',
+        rating: score,
+        createdAt: existingRatingSnap.exists() ? (existingRatingSnap.data().createdAt || now) : now,
+        updatedAt: now
+      }));
+      subcollectionSaved = true;
+    } catch {
+      // Fall back to user document + recipe aggregate update
+    }
+
+    // 3. Save user's rating on users/{userId}.recipeRatings so it always persists across sessions
+    try {
+      await updateDoc(userDocRef, {
+        recipeRatings: {
+          ...existingUserRatings,
+          [recipeId]: score,
+        },
+        updatedAt: now,
+      });
+    } catch (err) {
+      if (!subcollectionSaved) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userId}`);
+        throw err;
+      }
+    }
+
+    // 4. Compute exact new average & count
+    let average = score;
+    let count = 1;
+
+    if (subcollectionSaved) {
+      try {
+        const ratingsSnap = await getDocs(collection(db, 'recipes', recipeId, 'ratings'));
+        let total = 0;
+        let subCount = 0;
+        ratingsSnap.forEach((docSnap) => {
+          const val = docSnap.data().rating;
+          if (typeof val === 'number' && val >= 1 && val <= 5) {
+            total += val;
+            subCount++;
+          }
+        });
+        if (subCount > 0) {
+          count = subCount;
+          average = Number((total / subCount).toFixed(1));
+        }
+      } catch {
+        // Fallback below
+      }
+    } else {
+      try {
+        const recipeSnap = await getDoc(recipeDocRef);
+        const recipeData = recipeSnap.exists() ? (recipeSnap.data() as Partial<Recipe>) : {};
+        const prevCount = typeof recipeData.ratingCount === 'number' ? recipeData.ratingCount : 0;
+        const prevAvg = typeof recipeData.ratingAverage === 'number' ? recipeData.ratingAverage : 0;
+
+        if (prevUserScore > 0 && prevCount > 0) {
+          count = prevCount;
+          const total = prevAvg * prevCount - prevUserScore + score;
+          average = Number(Math.min(5, Math.max(1, total / count)).toFixed(1));
+        } else {
+          count = prevCount + 1;
+          const total = prevAvg * prevCount + score;
+          average = Number(Math.min(5, Math.max(1, total / count)).toFixed(1));
+        }
+      } catch {
+        average = score;
+        count = 1;
+      }
+    }
+
+    // 5. Persist recalculated ratingAverage and ratingCount on recipes/{recipeId}
+    try {
+      await updateDoc(recipeDocRef, {
+        ratingAverage: average,
+        ratingCount: count
+      });
+    } catch (updateErr) {
+      console.warn('Could not sync aggregate rating on recipe document:', updateErr);
+    }
+
+    return { average, count, userRating: score };
+  },
+
+  // Rate a recipe (legacy fallback wrapper)
   async submitRating(recipeId: string, currentRating: number, newScore: number, currentCount: number): Promise<void> {
     const docRef = doc(db, 'recipes', recipeId);
     const updatedCount = (currentCount || 0) + 1;
-    const updatedAvg = Number((((currentRating || 5.0) * (currentCount || 0) + newScore) / updatedCount).toFixed(1));
+    const updatedAvg = Number((((currentRating || 0) * (currentCount || 0) + newScore) / updatedCount).toFixed(1));
     try {
       await updateDoc(docRef, {
         ratingAverage: updatedAvg,
-        ratingCount: updatedCount,
-        updatedAt: new Date().toISOString()
+        ratingCount: updatedCount
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `recipes/${recipeId}`);
