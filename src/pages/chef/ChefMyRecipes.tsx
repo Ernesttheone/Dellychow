@@ -172,46 +172,70 @@ export const ChefMyRecipes: React.FC<ChefMyRecipesProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.map((recipe) => (
+          {filtered.map((recipe) => {
+            const hasImage = Boolean(recipe.imageUrl && recipe.imageUrl.trim().length > 0);
+            return (
             <div 
               key={recipe.id}
               className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden shadow-2xs hover:shadow-sm transition-all flex flex-col justify-between"
             >
-              <div 
-                className="relative aspect-16/10 overflow-hidden bg-stone-100 cursor-pointer"
-                onClick={() => onSelectRecipe(recipe)}
-              >
-                <img
-                  src={recipe.imageUrl}
-                  alt={recipe.title}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
+              {hasImage && (
+                <div 
+                  className="relative aspect-16/10 overflow-hidden bg-stone-100 cursor-pointer"
+                  onClick={() => onSelectRecipe(recipe)}
+                >
+                  <img
+                    src={recipe.imageUrl}
+                    alt={recipe.title}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
 
-                {/* Status Badge */}
-                <div className="absolute top-2.5 left-2.5">
-                  {recipe.status === 'draft' ? (
-                    <span className="bg-amber-600 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
-                      <FileText className="w-3 h-3" />
-                      <span>Draft</span>
-                    </span>
-                  ) : (
-                    <span className="bg-emerald-700 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      <span>Published</span>
-                    </span>
+                  {/* Status Badge */}
+                  <div className="absolute top-2.5 left-2.5">
+                    {recipe.status === 'draft' ? (
+                      <span className="bg-amber-600 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
+                        <FileText className="w-3 h-3" />
+                        <span>Draft</span>
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-700 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Published</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {recipe.videoUrl && (
+                    <div className="absolute bottom-2.5 right-2.5 bg-stone-900/80 text-white text-[10px] font-medium px-2 py-0.5 rounded flex items-center gap-1">
+                      <span>Includes Video</span>
+                    </div>
                   )}
                 </div>
-
-                {recipe.videoUrl && (
-                  <div className="absolute bottom-2.5 right-2.5 bg-stone-900/80 text-white text-[10px] font-medium px-2 py-0.5 rounded flex items-center gap-1">
-                    <span>Includes Video</span>
-                  </div>
-                )}
-              </div>
+              )}
 
               <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
                 <div>
+                  {!hasImage && (
+                    <div className="flex items-center justify-between gap-2 mb-2.5">
+                      {recipe.status === 'draft' ? (
+                        <span className="bg-amber-600 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow-xs inline-flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          <span>Draft</span>
+                        </span>
+                      ) : (
+                        <span className="bg-emerald-700 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shadow-xs inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Published</span>
+                        </span>
+                      )}
+                      {recipe.videoUrl && (
+                        <span className="bg-stone-900 text-white text-[10px] font-medium px-2 py-0.5 rounded">
+                          Includes Video
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-xs text-stone-500 mb-1">
                     <span className="capitalize font-semibold text-amber-700">{recipe.category}</span>
                     <span>·</span>
@@ -266,7 +290,8 @@ export const ChefMyRecipes: React.FC<ChefMyRecipesProps> = ({
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Recipe, CookingVideo, UserRole, VideoStudioProject } from './types';
+import { Recipe, CookingVideo, UserRole, VideoStudioProject, UserProfile } from './types';
 import { RecipeService } from './services/recipeService';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
@@ -118,10 +118,14 @@ function AppContent() {
   // Firestore real-time data
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [videos, setVideos] = useState<CookingVideo[]>([]);
+  const [creatorsMap, setCreatorsMap] = useState<Record<string, UserProfile>>({});
   const [loadingContent, setLoadingContent] = useState(true);
 
   // Modals & Sharing
   const [activeVideoModal, setActiveVideoModal] = useState<CookingVideo | null>(null);
+  const [activeVideoInitialTab, setActiveVideoInitialTab] = useState<
+    'recipe' | 'shopping' | 'comments' | 'overview' | undefined
+  >(undefined);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareItem, setShareItem] = useState<ShareItem | null>(null);
   const [supportModalOpen, setSupportModalOpen] = useState(false);
@@ -182,6 +186,39 @@ function AppContent() {
       thumbnailUrl: video.thumbnailUrl
     });
     setShareModalOpen(true);
+  };
+
+  const handleShareRecipe = (recipe: Recipe) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    setShareItem({
+      title: `${recipe.title} | Chef ${recipe.authorName}`,
+      text: recipe.description || `Explore this artisanal recipe on DellyChow!`,
+      url: `${origin}/?recipe=${recipe.id}`,
+      mediaType: 'recipe',
+      thumbnailUrl: recipe.imageUrl?.trim() ? recipe.imageUrl : undefined
+    });
+    setShareModalOpen(true);
+  };
+
+  const handleCommentVideo = (video: CookingVideo) => {
+    if (video.isPremium && !currentUser) {
+      setPendingAction({ type: 'watch_video', video });
+      handleOpenAuthModal('signup', 'user');
+      return;
+    }
+    setActiveVideoInitialTab('comments');
+    setActiveVideoModal(video);
+    recordWatchedVideoOffline(video);
+  };
+
+  const handleReportVideo = (video: CookingVideo) => {
+    setReportTarget({
+      targetType: 'video',
+      targetId: video.id,
+      targetTitle: video.title,
+      targetAuthorId: video.authorId,
+      targetAuthorName: video.authorName,
+    });
   };
 
   // Check URL parameters for direct share links (?video=, ?v=, ?chef=, ?user=, ?recipe=, password reset)
@@ -348,6 +385,14 @@ function AppContent() {
     };
   }, [currentUser]);
 
+  // Real-time creator directory (syncs follower counts, @usernames, avatars)
+  useEffect(() => {
+    const unsubCreators = RecipeService.listenToCreators((map) => {
+      setCreatorsMap(map);
+    });
+    return () => unsubCreators();
+  }, []);
+
   // Automatically purge any previously seeded AI recipes or dummy profiles when their author or admin signs in
   useEffect(() => {
     if (!currentUser) return;
@@ -462,6 +507,7 @@ function AppContent() {
         videos={videos}
         recipes={publicRecipes}
         onPlayVideo={(video) => {
+          setActiveVideoInitialTab(undefined);
           setActiveVideoModal(video);
           recordWatchedVideoOffline(video);
         }}
@@ -516,8 +562,10 @@ function AppContent() {
           <HomePage
             recipes={publicRecipes}
             videos={publicVideos}
+            creatorsMap={creatorsMap}
             onSelectRecipe={handleSelectRecipe}
             onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
               setActiveVideoModal(video);
               recordWatchedVideoOffline(video);
             }}
@@ -525,22 +573,29 @@ function AppContent() {
             onRequestSubscribe={handleOpenSubscribe}
             onOpenAuthModal={handleOpenAuthModal}
             onShareVideo={handleShareVideo}
+            onShareRecipe={handleShareRecipe}
             onSelectChef={handleSelectChef}
+            onCommentVideo={handleCommentVideo}
+            onReportVideo={handleReportVideo}
           />
         )}
 
         {currentView === 'explore' && (
           <ExplorePage
             recipes={publicRecipes}
+            creatorsMap={creatorsMap}
             initialCategory={exploreCategory}
             onSelectRecipe={handleSelectRecipe}
             onSelectChef={handleSelectChef}
+            onOpenAuthModal={handleOpenAuthModal}
+            onShareRecipe={handleShareRecipe}
           />
         )}
 
         {currentView === 'recipe-detail' && selectedRecipe && (
           <RecipeDetailPage
             recipe={selectedRecipe}
+            creatorProfile={creatorsMap[selectedRecipe.authorId]}
             onBack={() => setCurrentView('explore')}
             onSelectChef={handleSelectChef}
             onRequestSubscribe={handleOpenSubscribe}
@@ -553,7 +608,9 @@ function AppContent() {
         {currentView === 'videos' && (
           <VideosPage
             videos={publicVideos}
+            creatorsMap={creatorsMap}
             onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
               setActiveVideoModal(video);
               recordWatchedVideoOffline(video);
             }}
@@ -561,6 +618,9 @@ function AppContent() {
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
             onShareVideo={handleShareVideo}
+            onSelectChef={handleSelectChef}
+            onCommentVideo={handleCommentVideo}
+            onReportVideo={handleReportVideo}
           />
         )}
 
@@ -570,7 +630,10 @@ function AppContent() {
             videos={publicVideos}
             onSelectRecipe={handleSelectRecipe}
             onSelectChef={handleSelectChef}
-            onPlayVideo={(video) => setActiveVideoModal(video)}
+            onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
+              setActiveVideoModal(video);
+            }}
             onRequestSubscribe={handleOpenSubscribe}
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
@@ -599,17 +662,26 @@ function AppContent() {
             recipes={publicRecipes}
             videos={videos}
             onSelectRecipe={handleSelectRecipe}
-            onPlayVideo={(video) => setActiveVideoModal(video)}
+            onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
+              setActiveVideoModal(video);
+            }}
             onRequestSubscribe={handleOpenSubscribe}
             onOpenAuthModal={handleOpenAuthModal}
             onReportContent={(target) => setReportTarget(target)}
+            onCommentVideo={handleCommentVideo}
+            onReportVideo={handleReportVideo}
+            onShareRecipe={handleShareRecipe}
           />
         )}
 
         {currentView === 'premium' && (
           <PremiumPage
             videos={videos}
-            onPlayVideo={(video) => setActiveVideoModal(video)}
+            onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
+              setActiveVideoModal(video);
+            }}
             onRequestSubscribe={handleOpenSubscribe}
             onSelectChef={handleSelectChef}
             onOpenAuthModal={handleOpenAuthModal}
@@ -620,8 +692,10 @@ function AppContent() {
           <FollowingPage
             recipes={publicRecipes}
             videos={publicVideos}
+            creatorsMap={creatorsMap}
             onSelectRecipe={handleSelectRecipe}
             onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
               setActiveVideoModal(video);
               recordWatchedVideoOffline(video);
             }}
@@ -630,6 +704,9 @@ function AppContent() {
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
             onShareVideo={handleShareVideo}
+            onShareRecipe={handleShareRecipe}
+            onCommentVideo={handleCommentVideo}
+            onReportVideo={handleReportVideo}
           />
         )}
 
@@ -644,12 +721,23 @@ function AppContent() {
           <UserProfilePage
             recipes={publicRecipes}
             videos={videos}
+            creatorsMap={creatorsMap}
             onSelectRecipe={handleSelectRecipe}
+            onPlayVideo={(video) => {
+              setActiveVideoInitialTab(undefined);
+              setActiveVideoModal(video);
+              recordWatchedVideoOffline(video);
+            }}
             onSelectChef={handleSelectChef}
+            onRequestSubscribe={handleOpenSubscribe}
             onNavigate={handleNavigate}
             onOpenAuthModal={handleOpenAuthModal}
             viewUserId={selectedUserId}
             onReportContent={(target) => setReportTarget(target)}
+            onShareVideo={handleShareVideo}
+            onCommentVideo={handleCommentVideo}
+            onReportVideo={handleReportVideo}
+            onShareRecipe={handleShareRecipe}
           />
         )}
 
@@ -775,18 +863,27 @@ function AppContent() {
       {activeVideoModal && (
         <VideoPlayerModal
           video={activeVideoModal}
-          onClose={() => setActiveVideoModal(null)}
+          initialTab={activeVideoInitialTab}
+          creatorProfile={creatorsMap[activeVideoModal.authorId]}
+          onClose={() => {
+            setActiveVideoModal(null);
+            setActiveVideoInitialTab(undefined);
+          }}
           onViewRecipe={(recipeId) => handleNavigate('recipe-detail', { recipeId })}
           onSelectChef={handleSelectChef}
           onRequestSubscribe={handleOpenSubscribe}
           onOpenAuthModal={handleOpenAuthModal}
           onNavigateToShopping={() => {
             setActiveVideoModal(null);
+            setActiveVideoInitialTab(undefined);
             setCurrentView('shopping-lists');
           }}
           recipes={publicRecipes}
           videos={videos}
-          onSelectVideo={(video) => setActiveVideoModal(video)}
+          onSelectVideo={(video) => {
+            setActiveVideoInitialTab(undefined);
+            setActiveVideoModal(video);
+          }}
           onReportContent={(target) => setReportTarget(target)}
         />
       )}

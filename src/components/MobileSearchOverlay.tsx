@@ -10,7 +10,8 @@ import {
   TrendingUp, 
   Play, 
   Eye, 
-  ChevronRight 
+  ChevronRight,
+  UtensilsCrossed
 } from 'lucide-react';
 import { CookingVideo, Recipe } from '../types';
 import { UserAvatar } from './UserAvatar';
@@ -410,11 +411,18 @@ export const MobileSearchOverlay: React.FC<MobileSearchOverlayProps> = ({
                       className="p-3 bg-white rounded-2xl border border-stone-200 flex items-center justify-between cursor-pointer hover:border-amber-500 transition-all shadow-2xs"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <img
-                          src={recipe.imageUrl}
-                          alt={recipe.title}
-                          className="w-12 h-12 rounded-xl object-cover shrink-0"
-                        />
+                        {recipe.imageUrl?.trim() ? (
+                          <img
+                            src={recipe.imageUrl}
+                            alt={recipe.title}
+                            referrerPolicy="no-referrer"
+                            className="w-12 h-12 rounded-xl object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200/70 text-amber-700 flex items-center justify-center shrink-0">
+                            <UtensilsCrossed className="w-5 h-5" />
+                          </div>
+                        )}
                         <div className="min-w-0">
                           <h4 className="font-bold text-xs sm:text-sm text-stone-900 truncate">
                             {recipe.title}

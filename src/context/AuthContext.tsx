@@ -81,6 +81,12 @@ interface AuthContextType {
   isFollowingChef: (chefId: string) => boolean;
   isRecipeBookmarked: (recipeId: string) => boolean;
   isVideoBookmarked: (videoId: string) => boolean;
+  isVideoLiked: (videoId: string) => boolean;
+  isRecipeLiked: (recipeId: string) => boolean;
+  likedVideoIds: string[];
+  likedRecipeIds: string[];
+  toggleLikeVideo: (video: CookingVideo) => Promise<boolean>;
+  toggleLikeRecipe: (recipe: Recipe) => Promise<boolean>;
   followChef: (
     chefId: string,
     chefDetails?: {
@@ -155,6 +161,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeWatchVideo, setActiveWatchVideo] = useState<CookingVideo | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [pendingToast, setPendingToast] = useState<string | null>(null);
+  const [likedVideoIds, setLikedVideoIds] = useState<string[]>([]);
+  const [likedRecipeIds, setLikedRecipeIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setLikedVideoIds(Array.isArray(userProfile?.likedVideoIds) ? userProfile.likedVideoIds : []);
+    setLikedRecipeIds(Array.isArray(userProfile?.likedRecipeIds) ? userProfile.likedRecipeIds : []);
+  }, [userProfile?.likedVideoIds, userProfile?.likedRecipeIds]);
 
 
   // Test Firestore connectivity on boot
@@ -767,6 +780,96 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return videoFavourites.some(f => f.videoId === videoId);
   };
 
+  const isVideoLiked = (videoId: string): boolean => {
+    return likedVideoIds.includes(videoId);
+  };
+
+  const isRecipeLiked = (recipeId: string): boolean => {
+    return likedRecipeIds.includes(recipeId);
+  };
+
+  const toggleLikeVideo = async (video: CookingVideo): Promise<boolean> => {
+    if (!currentUser) {
+      throw new Error('AUTH_REQUIRED');
+    }
+    const currentlyLiked = likedVideoIds.includes(video.id);
+    const nextIds = currentlyLiked
+      ? likedVideoIds.filter((id) => id !== video.id)
+      : [video.id, ...likedVideoIds];
+    setLikedVideoIds(nextIds);
+
+    const nextCount = Math.max(0, (video.likesCount || 0) + (currentlyLiked ? -1 : 1));
+
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        likedVideoIds: nextIds,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      // Continue syncing video count
+    }
+
+    await RecipeService.likeVideo(video.id, nextCount);
+
+    if (!currentlyLiked && video.authorId && video.authorId !== currentUser.uid) {
+      const actorName = userProfile?.displayName || currentUser.displayName || 'Food Lover';
+      await RecipeService.createNotification(video.authorId, {
+        type: 'new_like',
+        title: `${actorName} liked your video`,
+        message: video.title,
+        actorId: currentUser.uid,
+        actorName,
+        actorPhoto: userProfile?.photoURL || currentUser.photoURL || '',
+        targetId: video.id,
+        targetType: 'video',
+        link: `video:${video.id}`,
+      });
+    }
+
+    return !currentlyLiked;
+  };
+
+  const toggleLikeRecipe = async (recipe: Recipe): Promise<boolean> => {
+    if (!currentUser) {
+      throw new Error('AUTH_REQUIRED');
+    }
+    const currentlyLiked = likedRecipeIds.includes(recipe.id);
+    const nextIds = currentlyLiked
+      ? likedRecipeIds.filter((id) => id !== recipe.id)
+      : [recipe.id, ...likedRecipeIds];
+    setLikedRecipeIds(nextIds);
+
+    const nextCount = Math.max(0, (recipe.likesCount || 0) + (currentlyLiked ? -1 : 1));
+
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        likedRecipeIds: nextIds,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      // Continue syncing recipe count
+    }
+
+    await RecipeService.likeRecipe(recipe.id, nextCount);
+
+    if (!currentlyLiked && recipe.authorId && recipe.authorId !== currentUser.uid) {
+      const actorName = userProfile?.displayName || currentUser.displayName || 'Food Lover';
+      await RecipeService.createNotification(recipe.authorId, {
+        type: 'new_like',
+        title: `${actorName} liked your recipe`,
+        message: recipe.title,
+        actorId: currentUser.uid,
+        actorName,
+        actorPhoto: userProfile?.photoURL || currentUser.photoURL || '',
+        targetId: recipe.id,
+        targetType: 'recipe',
+        link: `recipe:${recipe.id}`,
+      });
+    }
+
+    return !currentlyLiked;
+  };
+
   const followChef = async (
     chefId: string,
     chefDetails?: {
@@ -842,6 +945,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {
           // Silently continue if follower count cannot be updated
         }
+
+        const actorName = userProfile?.displayName || currentUser.displayName || 'Food Explorer';
+        await RecipeService.createNotification(chefId, {
+          type: 'new_follower',
+          title: `${actorName} started following you`,
+          message: `${actorName} is now following your culinary channel on DellyChow.`,
+          actorId: currentUser.uid,
+          actorName,
+          actorPhoto: userProfile?.photoURL || currentUser.photoURL || '',
+          targetId: currentUser.uid,
+          targetType: 'profile',
+          link: `user:${currentUser.uid}`,
+        });
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${currentUser.uid}`);
@@ -926,7 +1042,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userId: currentUser.uid,
           recipeId: recipe.id,
           recipeTitle: recipe.title,
-          recipeImage: recipe.imageUrl,
+          recipeImage: recipe.imageUrl || '',
           category: recipe.category,
           cuisine: recipe.cuisine || 'Specialty',
           addedAt: new Date().toISOString()
@@ -985,37 +1101,108 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const act = actionToRun || pendingAction;
     if (!act || !currentUser) return;
 
+    const actorName = userProfile?.displayName || currentUser.displayName || 'Food Explorer';
+    const actorPhoto = userProfile?.photoURL || currentUser.photoURL || '';
+
     try {
       if (act.type === 'comment_recipe') {
         await RecipeService.addComment(act.recipeId, {
           recipeId: act.recipeId,
           userId: currentUser.uid,
-          userName: userProfile?.displayName || currentUser.displayName || 'Food Explorer',
-          userPhoto: userProfile?.photoURL || currentUser.photoURL || '',
+          userName: actorName,
+          userPhoto: actorPhoto,
+          authorRole: userProfile?.role || 'user',
+          parentId: act.parentId,
+          replyToUserId: act.replyToUserId,
+          replyToUserName: act.replyToUserName,
           content: act.content
         });
+        if (act.parentId && act.replyToUserId && act.replyToUserId !== currentUser.uid) {
+          await RecipeService.createNotification(act.replyToUserId, {
+            type: 'comment_reply',
+            title: `${actorName} replied to your comment`,
+            message: act.content,
+            actorId: currentUser.uid,
+            actorName,
+            actorPhoto,
+            targetId: act.recipeId,
+            targetType: 'recipe',
+            link: `recipe:${act.recipeId}`,
+          });
+        } else if (act.authorId && act.authorId !== currentUser.uid) {
+          await RecipeService.createNotification(act.authorId, {
+            type: 'new_comment',
+            title: `${actorName} commented on ${act.targetTitle || 'your recipe'}`,
+            message: act.content,
+            actorId: currentUser.uid,
+            actorName,
+            actorPhoto,
+            targetId: act.recipeId,
+            targetType: 'recipe',
+            link: `recipe:${act.recipeId}`,
+          });
+        }
         setPendingToast('Your cooking note has been published!');
       } else if (act.type === 'comment_video') {
         await RecipeService.addVideoComment(act.videoId, {
           videoId: act.videoId,
           userId: currentUser.uid,
-          userName: userProfile?.displayName || currentUser.displayName || 'Food Explorer',
-          userPhoto: userProfile?.photoURL || currentUser.photoURL || '',
+          userName: actorName,
+          userPhoto: actorPhoto,
+          authorRole: userProfile?.role || 'user',
+          parentId: act.parentId,
+          replyToUserId: act.replyToUserId,
+          replyToUserName: act.replyToUserName,
           content: act.content
         });
+        if (act.parentId && act.replyToUserId && act.replyToUserId !== currentUser.uid) {
+          await RecipeService.createNotification(act.replyToUserId, {
+            type: 'comment_reply',
+            title: `${actorName} replied to your comment`,
+            message: act.content,
+            actorId: currentUser.uid,
+            actorName,
+            actorPhoto,
+            targetId: act.videoId,
+            targetType: 'video',
+            link: `video:${act.videoId}`,
+          });
+        } else if (act.authorId && act.authorId !== currentUser.uid) {
+          await RecipeService.createNotification(act.authorId, {
+            type: 'new_comment',
+            title: `${actorName} commented on ${act.targetTitle || 'your video'}`,
+            message: act.content,
+            actorId: currentUser.uid,
+            actorName,
+            actorPhoto,
+            targetId: act.videoId,
+            targetType: 'video',
+            link: `video:${act.videoId}`,
+          });
+        }
         setPendingToast('Your video note has been published!');
       } else if (act.type === 'like_video') {
-        await RecipeService.likeVideo(act.videoId, 0);
+        const videoSnap = await RecipeService.getVideo(act.videoId);
+        if (videoSnap) {
+          await toggleLikeVideo(videoSnap);
+        } else {
+          await RecipeService.likeVideo(act.videoId, 1);
+        }
         setPendingToast('You liked this video!');
       } else if (act.type === 'like_recipe') {
-        await RecipeService.likeRecipe(act.recipeId, 0);
+        const recipeSnap = await RecipeService.getRecipe(act.recipeId);
+        if (recipeSnap) {
+          await toggleLikeRecipe(recipeSnap);
+        } else {
+          await RecipeService.likeRecipe(act.recipeId, 1);
+        }
         setPendingToast('You liked this recipe!');
       } else if (act.type === 'rate_recipe') {
         await RecipeService.rateRecipe(
           act.recipeId,
           currentUser.uid,
           act.rating,
-          userProfile?.displayName || currentUser.displayName || 'Food Explorer'
+          actorName
         );
         setPendingToast(`Rated recipe ${act.rating}/5 stars!`);
       } else if (act.type === 'follow_chef') {
@@ -1153,6 +1340,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isFollowingChef,
         isRecipeBookmarked,
         isVideoBookmarked,
+        isVideoLiked,
+        isRecipeLiked,
+        likedVideoIds,
+        likedRecipeIds,
+        toggleLikeVideo,
+        toggleLikeRecipe,
         followChef,
         unfollowChef,
         toggleFollowChef,

@@ -32,7 +32,9 @@ import {
   FileText,
   Sliders,
   Radio,
-  ImageIcon
+  ImageIcon,
+  Tag,
+  X
 } from 'lucide-react';
 import { Recipe, CookingVideo, VideoStudioProject } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -81,6 +83,8 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   const [prepTimeMinutes, setPrepTimeMinutes] = useState(10);
   const [hasManuallySetDuration, setHasManuallySetDuration] = useState(false);
   const [category, setCategory] = useState('Technique');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
   const [recipeId, setRecipeId] = useState('');
   const [isPremium, setIsPremium] = useState(false);
   const [confirmedOwnership, setConfirmedOwnership] = useState(true);
@@ -242,6 +246,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
       setTitle(initialEditVideo.title || '');
       setDescription(initialEditVideo.description || '');
       setCategory(initialEditVideo.category || 'Technique');
+      setTags(Array.isArray(initialEditVideo.tags) ? initialEditVideo.tags : []);
       setThumbnailUrl(initialEditVideo.thumbnailUrl || ASSET_IMAGES.trufflePasta);
       setDurationMinutes(initialEditVideo.durationMinutes || 15);
       setIsPremium(Boolean(initialEditVideo.isPremium));
@@ -744,6 +749,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         thumbnailUrl: thumbnailUrl.trim() || ASSET_IMAGES.trufflePasta,
         durationMinutes: Number(durationMinutes) || 15,
         category: category.trim(),
+        tags,
         isPremium,
         status: saveStatus,
         viewCount: 1,
@@ -779,6 +785,16 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         await RecipeService.updateVideo(editingVideoId, videoData);
       } else {
         await RecipeService.createVideo(videoData, targetVideoId);
+      }
+
+      if (saveStatus === 'published') {
+        RecipeService.notifyFollowersOfNewVideo({
+          id: targetVideoId,
+          title: videoData.title,
+          authorId: currentUser.uid,
+          authorName: videoData.authorName,
+          authorPhoto: videoData.authorPhoto,
+        }).catch(() => {});
       }
 
       const created: CookingVideo = {
@@ -833,6 +849,8 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     setThumbnailUrl(ASSET_IMAGES.trufflePasta);
     setDurationMinutes(15);
     setCategory('Technique');
+    setTags([]);
+    setTagInput('');
     setRecipeId('');
     setIsPremium(false);
     setCalories('');
@@ -1860,6 +1878,90 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
             </div>
           </div>
 
+          {/* Tags Input (YouTube-Style Discovery Tags) */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-stone-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-amber-600" />
+                <span>Discovery Tags (Optional)</span>
+              </label>
+              <span className="text-[11px] text-stone-400">{tags.length}/10 tags</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    const clean = tagInput.trim().replace(/^#/, '');
+                    if (clean && !tags.includes(clean) && tags.length < 10) {
+                      setTags([...tags, clean]);
+                    }
+                    setTagInput('');
+                  }
+                }}
+                placeholder="Type a tag and press Enter (e.g. KnifeSkills, 15MinMeal)"
+                className="flex-1 text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const clean = tagInput.trim().replace(/^#/, '');
+                  if (clean && !tags.includes(clean) && tags.length < 10) {
+                    setTags([...tags, clean]);
+                  }
+                  setTagInput('');
+                }}
+                className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold cursor-pointer shrink-0"
+              >
+                Add Tag
+              </button>
+            </div>
+
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold"
+                  >
+                    <span>#{tag}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTags(tags.filter((t) => t !== tag))}
+                      className="text-amber-600 hover:text-amber-900 cursor-pointer"
+                      aria-label={`Remove ${tag} tag`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-stone-400 mr-1">Suggested:</span>
+              {['Quick Meal', 'Knife Skills', 'Street Food', 'Authentic', 'Chef Secret', '15-Min', 'Gluten-Free', 'Spicy'].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  disabled={tags.includes(preset) || tags.length >= 10}
+                  onClick={() => {
+                    if (!tags.includes(preset) && tags.length < 10) {
+                      setTags([...tags, preset]);
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded-md text-[11px] bg-stone-100 hover:bg-stone-200 text-stone-600 disabled:opacity-40 cursor-pointer"
+                >
+                  +{preset}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Duration & Prep Time */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
             <div>
@@ -2275,8 +2377,29 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                   </p>
                 </div>
               ) : (
-                /* Summary Card */
+                /* Summary Card + Live Video Preview Before Publishing */
                 <div className="space-y-4">
+                  {/* Video Preview Player */}
+                  {(videoPreviewUrl || customVideoUrl.trim()) && (
+                    <div className="rounded-2xl overflow-hidden bg-black border border-stone-200 shadow-sm">
+                      {videoPreviewUrl || !/youtube\.com|youtu\.be|vimeo\.com/i.test(customVideoUrl) ? (
+                        <video
+                          src={videoPreviewUrl || customVideoUrl}
+                          poster={thumbnailUrl}
+                          controls
+                          playsInline
+                          className="w-full aspect-16/9 bg-black object-contain"
+                        />
+                      ) : (
+                        <div className="aspect-16/9 bg-stone-900 flex flex-col items-center justify-center p-6 text-center text-white space-y-2">
+                          <Film className="w-8 h-8 text-amber-400" />
+                          <p className="text-xs font-semibold">External Video URL Ready</p>
+                          <p className="text-[11px] text-stone-400 truncate max-w-full">{customVideoUrl}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="bg-stone-50 rounded-2xl p-4 sm:p-5 border border-stone-200 space-y-3 text-xs">
                     <div className="flex items-center gap-4 pb-3 border-b border-stone-200">
                       <div className="w-24 h-16 rounded-xl overflow-hidden bg-stone-900 shrink-0">
@@ -2327,6 +2450,16 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                         </div>
                       )}
                     </div>
+
+                    {tags.length > 0 && (
+                      <div className="pt-2 border-t border-stone-200 flex flex-wrap gap-1.5">
+                        {tags.map((t) => (
+                          <span key={t} className="px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[11px] font-semibold">
+                            #{t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <p className="text-xs text-stone-500 leading-relaxed">

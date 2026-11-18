@@ -25,8 +25,12 @@ import {
   Scale,
   Sliders,
   UserCheck,
+  UtensilsCrossed,
+  Heart,
+  MessageSquare,
+  UserPlus,
 } from 'lucide-react';
-import { UserRole, CookingVideo, Recipe } from '../types';
+import { UserRole, CookingVideo, Recipe, UserNotification } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar';
 import { ThemeToggle } from './ThemeToggle';
@@ -46,6 +50,39 @@ interface NavbarProps {
   onSelectRecipe?: (recipe: Recipe) => void;
   onSelectChef?: (chefId: string) => void;
 }
+
+const formatNotificationTime = (iso?: string): string => {
+  if (!iso) return 'Just now';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 60_000) return 'Just now';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+};
+
+const getNotificationTypeBadge = (type: UserNotification['type']) => {
+  switch (type) {
+    case 'new_video':
+      return { icon: Video, bg: 'bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400' };
+    case 'new_like':
+      return { icon: Heart, bg: 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400' };
+    case 'new_comment':
+    case 'comment_reply':
+      return { icon: MessageSquare, bg: 'bg-sky-100 text-sky-600 dark:bg-sky-950/60 dark:text-sky-400' };
+    case 'new_follower':
+      return { icon: UserPlus, bg: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400' };
+    case 'new_recipe':
+      return { icon: UtensilsCrossed, bg: 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400' };
+    case 'vip_live':
+      return { icon: Crown, bg: 'bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400' };
+    default:
+      return { icon: Bell, bg: 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300' };
+  }
+};
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentView,
@@ -321,11 +358,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                             }}
                             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-amber-50/70 dark:hover:bg-stone-800 text-left transition-colors cursor-pointer"
                           >
-                            <img
-                              src={r.imageUrl}
-                              alt={r.title}
-                              className="w-10 h-10 rounded-lg object-cover bg-stone-200 shrink-0"
-                            />
+                            {r.imageUrl?.trim() ? (
+                              <img
+                                src={r.imageUrl}
+                                alt={r.title}
+                                referrerPolicy="no-referrer"
+                                className="w-10 h-10 rounded-lg object-cover bg-stone-200 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center shrink-0">
+                                <UtensilsCrossed className="w-4 h-4" />
+                              </div>
+                            )}
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-semibold text-stone-900 dark:text-stone-100 truncate">
                                 {r.title}
@@ -524,50 +568,79 @@ export const Navbar: React.FC<NavbarProps> = ({
                     )}
                   </div>
 
-                  <div className="max-h-72 overflow-y-auto divide-y divide-stone-100 dark:divide-stone-800">
+                  <div className="max-h-80 overflow-y-auto divide-y divide-stone-100 dark:divide-stone-800">
                     {notifications.length === 0 ? (
                       <div className="px-4 py-8 text-center text-xs text-stone-400">
                         <Bell className="w-8 h-8 mx-auto text-stone-300 mb-2 stroke-1" />
-                        No notifications yet. Follow chefs to get notified when they post tutorials or host live masterclasses!
+                        No notifications yet. Follow chefs or share culinary videos to get alerts on new uploads, likes, comments, replies, and new followers!
                       </div>
                     ) : (
-                      notifications.map((notif) => (
-                        <div
-                          key={notif.id}
-                          onClick={() => {
-                            markNotificationAsRead(notif.id);
-                            if (notif.link) {
-                              if (notif.link.startsWith('video:')) {
-                                onNavigate('videos', { videoId: notif.link.replace('video:', '') });
-                              } else if (notif.link.startsWith('recipe:')) {
-                                onNavigate('recipe-detail', { recipeId: notif.link.replace('recipe:', '') });
-                              } else if (notif.link === 'premium') {
-                                onNavigate('premium');
-                              }
-                            }
-                            setNotificationOpen(false);
-                          }}
-                          className={`p-3 text-left transition-colors cursor-pointer hover:bg-amber-50/50 dark:hover:bg-stone-800 flex items-start gap-2.5 ${
-                            !notif.read ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''
-                          }`}
-                        >
+                      notifications.map((notif) => {
+                        const badge = getNotificationTypeBadge(notif.type);
+                        const BadgeIcon = badge.icon;
+                        return (
                           <div
-                            className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-amber-500"
-                            style={{ opacity: notif.read ? 0 : 1 }}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-stone-900 dark:text-stone-100 leading-tight">
-                              {notif.title}
-                            </p>
-                            <p className="text-[11px] text-stone-600 dark:text-stone-400 mt-0.5 line-clamp-2">
-                              {notif.message}
-                            </p>
-                            <span className="text-[9px] text-stone-400 mt-1 block">
-                              {new Date(notif.createdAt).toLocaleDateString()}
-                            </span>
+                            key={notif.id}
+                            onClick={() => {
+                              markNotificationAsRead(notif.id);
+                              if (notif.link) {
+                                if (notif.link.startsWith('video:')) {
+                                  onNavigate('videos', { videoId: notif.link.replace('video:', '') });
+                                } else if (notif.link.startsWith('recipe:')) {
+                                  onNavigate('recipe-detail', { recipeId: notif.link.replace('recipe:', '') });
+                                } else if (notif.link.startsWith('user:')) {
+                                  onNavigate('user-profile', { userId: notif.link.replace('user:', '') });
+                                } else if (notif.link.startsWith('chef:')) {
+                                  onNavigate('chef-profile', { chefId: notif.link.replace('chef:', '') });
+                                } else if (notif.link === 'premium') {
+                                  onNavigate('premium');
+                                }
+                              }
+                              setNotificationOpen(false);
+                            }}
+                            className={`p-3 text-left transition-colors cursor-pointer hover:bg-amber-50/50 dark:hover:bg-stone-800 flex items-start gap-2.5 ${
+                              !notif.read ? 'bg-amber-50/40 dark:bg-amber-950/20' : ''
+                            }`}
+                          >
+                            <div
+                              className="w-2 h-2 rounded-full mt-2 shrink-0 bg-amber-500"
+                              style={{ opacity: notif.read ? 0 : 1 }}
+                            />
+                            <div className="relative shrink-0">
+                              {notif.actorName || notif.actorPhoto ? (
+                                <UserAvatar
+                                  src={notif.actorPhoto}
+                                  name={notif.actorName || notif.chefName || 'Creator'}
+                                  seed={notif.actorId || notif.chefId || notif.id}
+                                  size="xs"
+                                />
+                              ) : (
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${badge.bg}`}>
+                                  <BadgeIcon className="w-4 h-4" />
+                                </div>
+                              )}
+                              {(notif.actorName || notif.actorPhoto) && (
+                                <span
+                                  className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-stone-900 ${badge.bg}`}
+                                >
+                                  <BadgeIcon className="w-2.5 h-2.5" />
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-stone-900 dark:text-stone-100 leading-tight">
+                                {notif.title}
+                              </p>
+                              <p className="text-[11px] text-stone-600 dark:text-stone-400 mt-0.5 line-clamp-2">
+                                {notif.message}
+                              </p>
+                              <span className="text-[10px] text-stone-400 mt-1 block font-medium">
+                                {formatNotificationTime(notif.createdAt)}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>

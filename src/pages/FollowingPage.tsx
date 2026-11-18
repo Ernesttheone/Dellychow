@@ -21,6 +21,7 @@ import { DUMMY_ACCOUNT_NAMES, isDummyOrAiAccountId } from '../data/starterRecipe
 interface FollowingPageProps {
   recipes: Recipe[];
   videos: CookingVideo[];
+  creatorsMap?: Record<string, UserProfile>;
   onSelectRecipe: (recipe: Recipe) => void;
   onPlayVideo: (video: CookingVideo) => void;
   onSelectChef: (chefId: string) => void;
@@ -28,11 +29,15 @@ interface FollowingPageProps {
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal: (mode?: 'login' | 'signup') => void;
   onShareVideo?: (video: CookingVideo) => void;
+  onShareRecipe?: (recipe: Recipe) => void;
+  onCommentVideo?: (video: CookingVideo) => void;
+  onReportVideo?: (video: CookingVideo) => void;
 }
 
 export const FollowingPage: React.FC<FollowingPageProps> = ({
   recipes,
   videos,
+  creatorsMap,
   onSelectRecipe,
   onPlayVideo,
   onSelectChef,
@@ -40,6 +45,9 @@ export const FollowingPage: React.FC<FollowingPageProps> = ({
   onNavigate,
   onOpenAuthModal,
   onShareVideo,
+  onShareRecipe,
+  onCommentVideo,
+  onReportVideo,
 }) => {
   const {
     currentUser,
@@ -250,8 +258,11 @@ export const FollowingPage: React.FC<FollowingPageProps> = ({
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
+                creatorProfile={creatorsMap?.[recipe.authorId]}
                 onSelect={onSelectRecipe}
                 onSelectChef={onSelectChef}
+                onOpenAuthModal={() => onOpenAuthModal('login')}
+                onShare={onShareRecipe}
               />
             ))}
           </div>
@@ -272,8 +283,12 @@ export const FollowingPage: React.FC<FollowingPageProps> = ({
               <VideoCard
                 key={video.id}
                 video={video}
+                creatorProfile={creatorsMap?.[video.authorId]}
+                onSelectChef={onSelectChef}
                 onPlay={onPlayVideo}
                 onShare={onShareVideo}
+                onCommentClick={onCommentVideo}
+                onReport={onReportVideo}
                 onRequestSubscribe={onRequestSubscribe}
                 onOpenAuthModal={() => onOpenAuthModal('login')}
               />

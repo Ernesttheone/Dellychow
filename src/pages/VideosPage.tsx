@@ -1,26 +1,34 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Play, Search, Video, ChefHat, Sparkles, Plus, Clock, ShieldCheck, LogIn, Lock, WifiOff, Sliders } from 'lucide-react';
-import { CookingVideo } from '../types';
+import { CookingVideo, UserProfile } from '../types';
 import { VideoCard } from '../components/VideoCard';
 import { useAuth } from '../context/AuthContext';
 import { getWatchedVideosOffline, useOnlineStatus } from '../lib/offlineVideoCache';
 
 interface VideosPageProps {
   videos: CookingVideo[];
+  creatorsMap?: Record<string, UserProfile>;
   onPlayVideo: (video: CookingVideo) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
   onShareVideo?: (video: CookingVideo) => void;
+  onSelectChef?: (chefId: string) => void;
+  onCommentVideo?: (video: CookingVideo) => void;
+  onReportVideo?: (video: CookingVideo) => void;
 }
 
 export const VideosPage: React.FC<VideosPageProps> = ({
   videos,
+  creatorsMap,
   onPlayVideo,
   onRequestSubscribe,
   onNavigate,
   onOpenAuthModal,
-  onShareVideo
+  onShareVideo,
+  onSelectChef,
+  onCommentVideo,
+  onReportVideo
 }) => {
   const { currentUser, userProfile, setPendingAction } = useAuth();
   const isChef = userProfile?.role === 'chef';
@@ -29,6 +37,18 @@ export const VideosPage: React.FC<VideosPageProps> = ({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'free' | 'vip'>('all');
+  const [activeCategory, setActiveCategory] = useState<string>('all');
+
+  const videoCategories = [
+    { id: 'all', label: 'All Categories' },
+    { id: 'Technique', label: 'Technique' },
+    { id: 'Knife Skills', label: 'Knife Skills' },
+    { id: 'Rice & Grains', label: 'Rice & Grains' },
+    { id: 'Soups & Stews', label: 'Soups & Stews' },
+    { id: 'Handmade Pasta', label: 'Handmade Pasta' },
+    { id: 'Pastry & Baking', label: 'Pastry & Baking' },
+    { id: 'VIP Masterclasses', label: 'VIP Masterclasses' },
+  ];
 
   useEffect(() => {
     getWatchedVideosOffline().then((cv) => {
@@ -52,16 +72,26 @@ export const VideosPage: React.FC<VideosPageProps> = ({
       if (activeFilter === 'free' && v.isPremium) return false;
       if (activeFilter === 'vip' && !v.isPremium) return false;
 
+      if (activeCategory !== 'all') {
+        if (activeCategory === 'VIP Masterclasses') {
+          if (!v.isPremium) return false;
+        } else {
+          const cat = (v.category || '').toLowerCase();
+          if (!cat.includes(activeCategory.toLowerCase())) return false;
+        }
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesTitle = v.title.toLowerCase().includes(q);
         const matchesAuthor = v.authorName.toLowerCase().includes(q);
         const matchesDesc = v.description.toLowerCase().includes(q);
-        if (!matchesTitle && !matchesAuthor && !matchesDesc) return false;
+        const matchesTags = (v.tags || []).some((t) => t.toLowerCase().includes(q));
+        if (!matchesTitle && !matchesAuthor && !matchesDesc && !matchesTags) return false;
       }
       return true;
     });
-  }, [sourceVideos, currentUser, activeFilter, searchQuery]);
+  }, [sourceVideos, currentUser, activeFilter, activeCategory, searchQuery]);
 
   const handleVideoCardClick = (video: CookingVideo) => {
     if (video.isPremium && !currentUser) {
@@ -202,16 +232,36 @@ export const VideosPage: React.FC<VideosPageProps> = ({
             </button>
           </div>
 
-          <div className="relative w-full sm:w-72">
+            <div className="relative w-full sm:w-72">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search videos or chef name..."
+              placeholder="Search videos, #tags, or chef name..."
               className="w-full pl-10 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
             />
           </div>
+        </div>
+      )}
+
+      {/* Horizontal Category Filter Chips */}
+      {currentUser && (
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+          {videoCategories.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setActiveCategory(cat.id)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 cursor-pointer ${
+                activeCategory === cat.id
+                  ? 'bg-stone-900 text-white shadow-xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -235,8 +285,12 @@ export const VideosPage: React.FC<VideosPageProps> = ({
               <VideoCard
                 key={video.id}
                 video={video}
+                creatorProfile={creatorsMap?.[video.authorId]}
+                onSelectChef={(chefId) => (onSelectChef ? onSelectChef(chefId) : onNavigate('chef-profile', { chefId }))}
                 onPlay={handleVideoCardClick}
                 onShare={onShareVideo}
+                onCommentClick={onCommentVideo}
+                onReport={onReportVideo}
                 onRequestSubscribe={onRequestSubscribe}
                 isGuestRestricted={video.isPremium && !currentUser}
                 onOpenAuthModal={() => {

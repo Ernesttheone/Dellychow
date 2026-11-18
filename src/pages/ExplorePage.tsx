@@ -1,20 +1,26 @@
 import React, { useState, useMemo } from 'react';
 import { Search, SlidersHorizontal, X, Clock, Star, UtensilsCrossed } from 'lucide-react';
-import { Recipe, RecipeCategory } from '../types';
+import { Recipe, UserProfile } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
 
 interface ExplorePageProps {
   recipes: Recipe[];
+  creatorsMap?: Record<string, UserProfile>;
   initialCategory?: string;
   onSelectRecipe: (recipe: Recipe) => void;
   onSelectChef: (chefId: string) => void;
+  onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
+  onShareRecipe?: (recipe: Recipe) => void;
 }
 
 export const ExplorePage: React.FC<ExplorePageProps> = ({
   recipes,
+  creatorsMap,
   initialCategory = 'all',
   onSelectRecipe,
-  onSelectChef
+  onSelectChef,
+  onOpenAuthModal,
+  onShareRecipe
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>(
@@ -218,8 +224,11 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
             <RecipeCard
               key={recipe.id}
               recipe={recipe}
+              creatorProfile={creatorsMap?.[recipe.authorId]}
               onSelect={onSelectRecipe}
               onSelectChef={onSelectChef}
+              onOpenAuthModal={() => onOpenAuthModal?.('login')}
+              onShare={onShareRecipe}
             />
           ))}
         </div>

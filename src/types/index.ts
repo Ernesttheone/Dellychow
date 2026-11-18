@@ -46,6 +46,7 @@ export interface UserProfile {
   id: string;
   email?: string;
   displayName: string;
+  username?: string;
   photoURL?: string;
   role: UserRole;
   bio?: string;
@@ -56,6 +57,8 @@ export interface UserProfile {
   subscriberCount?: number;
   followerCount?: number;
   followedChefs?: ChefFollow[];
+  likedVideoIds?: string[];
+  likedRecipeIds?: string[];
   recipeRatings?: Record<string, number>;
   accountStatus?: 'active' | 'restricted' | 'suspended' | 'pending_deletion';
   restrictionReason?: string;
@@ -80,8 +83,9 @@ export interface Recipe {
   servings?: number;
   ingredients: string[];
   steps: string[];
-  imageUrl: string;
+  imageUrl?: string;
   videoUrl?: string;
+  tags?: string[];
   isPremium?: boolean;
   status?: 'published' | 'draft';
   ratingAverage?: number;
@@ -114,6 +118,7 @@ export interface CookingVideo {
   thumbnailUrl?: string;
   durationMinutes: number;
   category: string;
+  tags?: string[];
   recipeId?: string;
   attachedRecipe?: AttachedVideoRecipe;
   isPremium?: boolean;
@@ -178,6 +183,10 @@ export interface Comment {
   userId: string;
   userName: string;
   userPhoto?: string;
+  authorRole?: UserRole;
+  parentId?: string;
+  replyToUserId?: string;
+  replyToUserName?: string;
   content: string;
   createdAt: string;
 }
@@ -188,6 +197,10 @@ export interface VideoComment {
   userId: string;
   userName: string;
   userPhoto?: string;
+  authorRole?: UserRole;
+  parentId?: string;
+  replyToUserId?: string;
+  replyToUserName?: string;
   content: string;
   createdAt: string;
 }
@@ -273,11 +286,23 @@ export interface UserNotification {
   userId: string;
   title: string;
   message: string;
-  type: 'new_video' | 'new_recipe' | 'vip_live' | 'chef_update' | 'review_received';
+  type:
+    | 'new_video'
+    | 'new_recipe'
+    | 'vip_live'
+    | 'chef_update'
+    | 'review_received'
+    | 'new_comment'
+    | 'comment_reply'
+    | 'new_like'
+    | 'new_follower';
   chefId?: string;
   chefName?: string;
+  actorId?: string;
+  actorName?: string;
+  actorPhoto?: string;
   targetId?: string;
-  targetType?: 'video' | 'recipe' | 'community' | 'support';
+  targetType?: 'video' | 'recipe' | 'community' | 'support' | 'profile';
   link?: string;
   read: boolean;
   createdAt: string;
@@ -476,10 +501,10 @@ export interface UserBadge {
 }
 
 export type PendingAction = 
-  | { type: 'comment_recipe'; recipeId: string; content: string; targetTitle?: string }
-  | { type: 'comment_video'; videoId: string; content: string; targetTitle?: string }
-  | { type: 'like_video'; videoId: string; videoTitle?: string }
-  | { type: 'like_recipe'; recipeId: string; recipeTitle?: string }
+  | { type: 'comment_recipe'; recipeId: string; content: string; targetTitle?: string; parentId?: string; replyToUserId?: string; replyToUserName?: string; authorId?: string }
+  | { type: 'comment_video'; videoId: string; content: string; targetTitle?: string; parentId?: string; replyToUserId?: string; replyToUserName?: string; authorId?: string }
+  | { type: 'like_video'; videoId: string; videoTitle?: string; authorId?: string }
+  | { type: 'like_recipe'; recipeId: string; recipeTitle?: string; authorId?: string }
   | { type: 'rate_recipe'; recipeId: string; rating: number; recipeTitle?: string }
   | { type: 'follow_chef'; chefId: string; chefName: string }
   | { type: 'bookmark_video'; video: CookingVideo }

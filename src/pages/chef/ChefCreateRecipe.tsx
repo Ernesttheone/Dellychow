@@ -193,8 +193,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
     setSavingAction(targetStatus);
     setErrorMsg('');
 
-    // If no picture was uploaded, provide a default culinary meal image
-    const finalImageUrl = imageUrl.trim() || ASSET_IMAGES.trufflePasta;
+    // Image is optional: if none uploaded, save empty string so UI adapts cleanly without stock fallback
+    const finalImageUrl = imageUrl.trim();
     const finalCategory = (customCategory.trim() || category || 'Rice').trim();
 
     try {
@@ -318,10 +318,10 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
         {/* 2. Recipe Image */}
         <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-7 shadow-2xs space-y-3">
           <label className="block text-xs font-bold text-stone-800 uppercase tracking-wider">
-            2. Recipe Image *
+            2. Recipe Image (Optional)
           </label>
           <p className="text-xs text-stone-500">
-            Upload a picture of the meal from your device.
+            Upload a picture of the meal from your device, or leave empty if you prefer a text-only recipe post.
           </p>
 
           <div className="space-y-4">
@@ -380,8 +380,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
                 className="border-2 border-dashed border-stone-200 hover:border-amber-500 rounded-2xl p-8 text-center cursor-pointer transition-colors bg-stone-50/50"
               >
                 <ImageIcon className="w-8 h-8 text-stone-400 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-stone-700">No meal picture uploaded yet</p>
-                <p className="text-[11px] text-stone-400 mt-0.5">Click to choose a photo from your phone, tablet, or computer</p>
+                <p className="text-xs font-semibold text-stone-700">No meal picture uploaded (optional)</p>
+                <p className="text-[11px] text-stone-400 mt-0.5">Click to choose a photo, or leave empty to publish without a cover image</p>
               </div>
             )}
           </div>

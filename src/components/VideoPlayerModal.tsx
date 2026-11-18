@@ -41,9 +41,10 @@ import {
   Layers,
   ArrowRight,
   Timer,
-  Flag
+  Flag,
+  CornerDownRight
 } from 'lucide-react';
-import { CookingVideo, VideoComment, Recipe, ShoppingListItem } from '../types';
+import { CookingVideo, VideoComment, Recipe, ShoppingListItem, UserProfile } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -71,6 +72,8 @@ export interface VideoPlayerModalProps {
   videos?: CookingVideo[];
   onSelectVideo?: (video: CookingVideo) => void;
   onReportContent?: (target: ReportTarget) => void;
+  initialTab?: 'recipe' | 'shopping' | 'comments' | 'overview';
+  creatorProfile?: UserProfile;
 }
 
 export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = (props) => {
@@ -90,6 +93,8 @@ interface VideoPlayerModalContentProps {
   videos?: CookingVideo[];
   onSelectVideo?: (video: CookingVideo) => void;
   onReportContent?: (target: ReportTarget) => void;
+  initialTab?: 'recipe' | 'shopping' | 'comments' | 'overview';
+  creatorProfile?: UserProfile;
 }
 
 const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({ 
@@ -103,7 +108,9 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   recipes = [],
   videos = [],
   onSelectVideo,
-  onReportContent
+  onReportContent,
+  initialTab,
+  creatorProfile
 }) => {
   const { 
     currentUser, 
@@ -113,6 +120,8 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     toggleFollowChef,
     isVideoBookmarked, 
     toggleVideoBookmark, 
+    isVideoLiked,
+    toggleLikeVideo,
     setPendingAction,
     favourites,
     blockedUserIds
@@ -154,15 +163,18 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   } = useVideoDiagnostics(videoElementRef, video, playableUrl);
 
   // Likes & Following State
-  const [likes, setLikes] = useState<number>(0);
-  const [hasLiked, setHasLiked] = useState<boolean>(false);
+  const [likes, setLikes] = useState<number>(video.likesCount || 0);
+  const hasLiked = isVideoLiked(video.id);
   const isFollowing = isFollowingChef(video.authorId);
   const [notificationPref, setNotificationPref] = useState<'all' | 'personalized' | 'none'>('all');
   const [showNotificationMenu, setShowNotificationMenu] = useState<boolean>(false);
-  const [followerCount, setFollowerCount] = useState<number>(0);
+  const [followerCount, setFollowerCount] = useState<number>(creatorProfile?.followerCount ?? 0);
+
+  const authorDisplayName = creatorProfile?.displayName || video.authorName || 'Chef';
+  const authorDisplayPhoto = creatorProfile?.photoURL || video.authorPhoto;
 
   // UI Tabs & Views: 'recipe' | 'shopping' | 'comments' | 'overview'
-  const [activeTab, setActiveTab] = useState<'recipe' | 'shopping' | 'comments' | 'overview'>('recipe');
+  const [activeTab, setActiveTab] = useState<'recipe' | 'shopping' | 'comments' | 'overview'>(initialTab || 'recipe');
   const [descriptionExpanded, setDescriptionExpanded] = useState<boolean>(false);
 
   // Shopping List Integration
@@ -192,6 +204,7 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   // Comments State
   const [comments, setComments] = useState<VideoComment[]>([]);
   const [commentInput, setCommentInput] = useState<string>('');
+  const [replyingTo, setReplyingTo] = useState<VideoComment | null>(null);
   const [commentSubmitting, setCommentSubmitting] = useState<boolean>(false);
 
   // Chef Step Timer state (dynamically set to what the chef says for each step)
@@ -210,9 +223,9 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
   useEffect(() => {
     if (video) {
       setLikes(video.likesCount || 0);
-      setHasLiked(false);
-      setFollowerCount(0);
+      setFollowerCount(creatorProfile?.followerCount ?? 0);
       setCommentInput('');
+      setReplyingTo(null);
       setUnlockedInSession(false);
       setHasStartedPlay(false);
       setPreviewSecondsLeft(10);
@@ -238,13 +251,23 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
         }).catch(() => {});
       }
 
-      // Default active tab to recipe if available, else overview
-      setActiveTab(attachedRecipe ? 'recipe' : 'overview');
+      // Default active tab
+      setActiveTab(initialTab || (attachedRecipe ? 'recipe' : 'overview'));
 
       // Pre-cache video metadata and thumbnail in Cache API for offline viewing
       recordWatchedVideoOffline(video);
     }
-  }, [video?.id]);
+  }, [video?.id, initialTab]);
+
+  useEffect(() => {
+    setLikes(video.likesCount || 0);
+  }, [video.likesCount]);
+
+  useEffect(() => {
+    if (typeof creatorProfile?.followerCount === 'number') {
+      setFollowerCount(creatorProfile.followerCount);
+    }
+  }, [creatorProfile?.followerCount]);
 
   // Resolve Video URL
   useEffect(() => {
@@ -592,20 +615,19 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
       setPendingAction({
         type: 'like_video',
         videoId: video.id,
-        videoTitle: video.title
+        videoTitle: video.title,
+        authorId: video.authorId,
       });
       if (onOpenAuthModal) onOpenAuthModal('login');
       return;
     }
 
-    if (hasLiked) {
-      setHasLiked(false);
-      setLikes(prev => Math.max(0, prev - 1));
-      await RecipeService.likeVideo(video.id, likes - 2);
-    } else {
-      setHasLiked(true);
-      setLikes(prev => prev + 1);
-      await RecipeService.likeVideo(video.id, likes);
+    const wasLiked = hasLiked;
+    setLikes((prev) => Math.max(0, prev + (wasLiked ? -1 : 1)));
+    try {
+      await toggleLikeVideo({ ...video, likesCount: likes });
+    } catch {
+      setLikes(video.likesCount || 0);
     }
   };
 
@@ -757,32 +779,82 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
     await ShoppingService.updateListItems(currentUser.uid, activeShoppingListId, updated);
   };
 
-  // Comment Submission
+  // Comment Submission (with Threaded Reply & Notifications)
   const handleSendComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!commentInput.trim()) return;
+    const trimmed = commentInput.trim();
+    if (!trimmed || commentSubmitting) return;
+
+    const parentId = replyingTo ? (replyingTo.parentId || replyingTo.id) : undefined;
+    const replyToUserId = replyingTo?.userId;
+    const replyToUserName = replyingTo?.userName;
 
     if (!currentUser) {
       setPendingAction({
         type: 'comment_video',
         videoId: video.id,
-        content: commentInput.trim(),
-        targetTitle: video.title
+        content: trimmed,
+        targetTitle: video.title,
+        parentId,
+        replyToUserId,
+        replyToUserName,
+        authorId: video.authorId,
       });
       if (onOpenAuthModal) onOpenAuthModal('login');
       return;
     }
+
+    const actorName = userProfile?.displayName || currentUser.displayName || 'Food Explorer';
+    const actorPhoto = userProfile?.photoURL || currentUser.photoURL || '';
 
     setCommentSubmitting(true);
     try {
       await RecipeService.addVideoComment(video.id, {
         videoId: video.id,
         userId: currentUser.uid,
-        userName: userProfile?.displayName || currentUser.displayName || 'Food Explorer',
-        userPhoto: userProfile?.photoURL || currentUser.photoURL || '',
-        content: commentInput.trim()
+        userName: actorName,
+        userPhoto: actorPhoto,
+        authorRole: userProfile?.role || 'user',
+        parentId,
+        replyToUserId,
+        replyToUserName,
+        content: trimmed,
       });
+
+      if (replyingTo && replyingTo.userId && replyingTo.userId !== currentUser.uid) {
+        RecipeService.createNotification(replyingTo.userId, {
+          type: 'comment_reply',
+          title: `${actorName} replied to your comment`,
+          message: trimmed,
+          actorId: currentUser.uid,
+          actorName,
+          actorPhoto,
+          targetId: video.id,
+          targetType: 'video',
+          link: `video:${video.id}`,
+        }).catch(() => {});
+      }
+
+      if (
+        video.authorId &&
+        video.authorId !== currentUser.uid &&
+        video.authorId !== replyingTo?.userId
+      ) {
+        RecipeService.createNotification(video.authorId, {
+          type: 'new_comment',
+          title: `${actorName} commented on "${video.title}"`,
+          message: trimmed,
+          actorId: currentUser.uid,
+          actorName,
+          actorPhoto,
+          targetId: video.id,
+          targetType: 'video',
+          link: `video:${video.id}`,
+        }).catch(() => {});
+      }
+
       setCommentInput('');
+      setReplyingTo(null);
     } catch (err) {
       console.error('Failed to post video comment:', err);
     } finally {
@@ -1438,20 +1510,26 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                     className="cursor-pointer group flex items-center gap-3"
                   >
                     <UserAvatar
-                      src={video.authorPhoto}
+                      src={authorDisplayPhoto}
                       seed={video.authorId}
-                      name={video.authorName}
+                      name={authorDisplayName}
                       size="md"
+                      showFollowButton
+                      creatorId={video.authorId}
+                      creatorName={authorDisplayName}
+                      creatorPhoto={authorDisplayPhoto}
+                      onRequireAuth={() => onOpenAuthModal?.('login')}
                     />
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-sm text-white group-hover:text-amber-400 transition-colors">
-                          Chef {video.authorName}
+                          {authorDisplayName}
                         </span>
                         <ShieldCheck className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
                       </div>
                       <span className="text-[11px] text-stone-400 block">
-                        {followerCount.toLocaleString()} food lover followers
+                        {creatorProfile?.username ? `@${creatorProfile.username} · ` : ''}
+                        {followerCount.toLocaleString()} {followerCount === 1 ? 'follower' : 'followers'}
                       </span>
                     </div>
                   </div>
@@ -1596,15 +1674,27 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                 </div>
               </div>
 
-              {/* Collapsible Video Description Box */}
-              <div className="p-3.5 bg-stone-900/90 rounded-2xl border border-stone-800/80 text-xs text-stone-300 space-y-1">
+              {/* Collapsible Video Description Box & Tags */}
+              <div className="p-3.5 bg-stone-900/90 rounded-2xl border border-stone-800/80 text-xs text-stone-300 space-y-2">
                 <div className={`leading-relaxed ${descriptionExpanded ? '' : 'line-clamp-2'}`}>
                   {video.description || 'Watch step-by-step culinary preparation and professional knife techniques demonstrated by verified chef tutor.'}
                 </div>
+                {video.tags && video.tags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {video.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-2 py-0.5 rounded-full bg-stone-800 border border-stone-700 text-[10px] font-semibold text-amber-300"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setDescriptionExpanded(!descriptionExpanded)}
-                  className="font-bold text-amber-400 hover:underline pt-0.5 inline-block"
+                  className="font-bold text-amber-400 hover:underline pt-0.5 inline-block cursor-pointer"
                 >
                   {descriptionExpanded ? 'Show less' : '...more'}
                 </button>
@@ -1973,10 +2063,28 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
 
             {/* TAB CONTENT 3: COMMUNITY NOTES & COMMENTS */}
             {activeTab === 'comments' && (
-              <div className="p-4 sm:p-5 flex-1 flex flex-col min-h-0 space-y-4 animate-in fade-in">
+              <div className="p-4 sm:p-5 flex-1 flex flex-col min-h-0 space-y-3.5 animate-in fade-in">
                 <span className="text-xs font-bold uppercase tracking-wider text-stone-400 block shrink-0">
                   Viewer Kitchen Notes ({comments.length})
                 </span>
+
+                {/* Reply Banner */}
+                {replyingTo && (
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-200 shrink-0">
+                    <span className="flex items-center gap-1.5 truncate">
+                      <CornerDownRight className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span>Replying to <strong>{replyingTo.userName}</strong></span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setReplyingTo(null)}
+                      className="p-0.5 text-amber-300 hover:text-white cursor-pointer"
+                      aria-label="Cancel reply"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* Comment Input */}
                 <form onSubmit={handleSendComment} className="flex gap-2 shrink-0">
@@ -1984,61 +2092,143 @@ const VideoPlayerModalContent: React.FC<VideoPlayerModalContentProps> = ({
                     type="text"
                     value={commentInput}
                     onChange={(e) => setCommentInput(e.target.value)}
-                    placeholder="Ask a question or leave culinary feedback..."
+                    placeholder={
+                      replyingTo
+                        ? `Reply to ${replyingTo.userName}...`
+                        : "Ask a question or leave culinary feedback..."
+                    }
                     className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-xs text-white placeholder-stone-500 focus:outline-none focus:border-amber-500"
                   />
                   <button
                     type="submit"
                     disabled={!commentInput.trim() || commentSubmitting}
-                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shrink-0 flex items-center gap-1"
+                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
                   </button>
                 </form>
 
-                {/* Comments List (Filtered cleanly for blocked users) */}
-                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                  {comments.filter((c) => !blockedUserIds.includes(c.userId)).length === 0 ? (
-                    <p className="text-xs text-stone-500 py-6 text-center">
-                      No kitchen notes yet. Be the first to ask a question or leave a tip!
-                    </p>
-                  ) : (
-                    comments
-                      .filter((c) => !blockedUserIds.includes(c.userId))
-                      .map((comment) => (
-                      <div key={comment.id} className="p-3 rounded-xl bg-stone-900 border border-stone-800 text-xs space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-white">{comment.userName}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-stone-500">
-                              {new Date(comment.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </span>
-                            {onReportContent && comment.userId !== currentUser?.uid && (
+                {/* Comments List (Filtered for blocked users & grouped with threaded replies) */}
+                {(() => {
+                  const visibleComments = comments.filter((c) => !blockedUserIds.includes(c.userId));
+                  const topLevel = visibleComments.filter((c) => !c.parentId);
+                  const repliesMap: Record<string, VideoComment[]> = {};
+                  visibleComments
+                    .filter((c) => Boolean(c.parentId))
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                    .forEach((rep) => {
+                      const k = rep.parentId!;
+                      if (!repliesMap[k]) repliesMap[k] = [];
+                      repliesMap[k].push(rep);
+                    });
+
+                  if (visibleComments.length === 0) {
+                    return (
+                      <p className="text-xs text-stone-500 py-6 text-center">
+                        No kitchen notes yet. Be the first to ask a question or leave a tip!
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                      {topLevel.map((comment) => {
+                        const isCreator = comment.authorRole === 'chef' || comment.userId === video.authorId;
+                        const replies = repliesMap[comment.id] || [];
+                        return (
+                          <div key={comment.id} className="space-y-2">
+                            <div className="p-3 rounded-xl bg-stone-900 border border-stone-800 text-xs space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="font-bold text-white truncate">{comment.userName}</span>
+                                  {isCreator && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold uppercase tracking-wider">
+                                      Chef
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[10px] text-stone-500">
+                                    {new Date(comment.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                  {onReportContent && comment.userId !== currentUser?.uid && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onReportContent({
+                                          targetType: 'video_comment',
+                                          targetId: comment.id,
+                                          targetTitle: `Comment by ${comment.userName}: "${comment.content.slice(0, 60)}"`,
+                                          targetAuthorId: comment.userId,
+                                          targetAuthorName: comment.userName,
+                                        })
+                                      }
+                                      className="text-stone-500 hover:text-red-400 transition-colors cursor-pointer"
+                                      title="Report or block comment author"
+                                      aria-label="Report comment"
+                                    >
+                                      <Flag className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-stone-300 leading-relaxed">{comment.content}</p>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  onReportContent({
-                                    targetType: 'video_comment',
-                                    targetId: comment.id,
-                                    targetTitle: `Comment by ${comment.userName}: "${comment.content.slice(0, 60)}"`,
-                                    targetAuthorId: comment.userId,
-                                    targetAuthorName: comment.userName,
-                                  })
-                                }
-                                className="text-stone-500 hover:text-red-400 transition-colors cursor-pointer"
-                                title="Report or block comment author"
-                                aria-label="Report comment"
+                                onClick={() => setReplyingTo(comment)}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-400 hover:text-amber-400 transition-colors cursor-pointer pt-0.5"
                               >
-                                <Flag className="w-3 h-3" />
+                                <CornerDownRight className="w-3 h-3" />
+                                <span>Reply</span>
                               </button>
+                            </div>
+
+                            {replies.length > 0 && (
+                              <div className="pl-3.5 ml-2 space-y-1.5 border-l border-amber-500/30">
+                                {replies.map((reply) => {
+                                  const isReplyCreator = reply.authorRole === 'chef' || reply.userId === video.authorId;
+                                  return (
+                                    <div key={reply.id} className="p-2.5 rounded-xl bg-stone-900/60 border border-stone-800/80 text-xs space-y-1">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <span className="font-bold text-stone-100 truncate">{reply.userName}</span>
+                                          {isReplyCreator && (
+                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold uppercase tracking-wider">
+                                              Chef
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className="text-[10px] text-stone-500 shrink-0">
+                                          {new Date(reply.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                        </span>
+                                      </div>
+                                      <p className="text-stone-300 leading-relaxed">
+                                        {reply.replyToUserName && (
+                                          <span className="text-amber-400 font-semibold mr-1">
+                                            @{reply.replyToUserName}
+                                          </span>
+                                        )}
+                                        {reply.content}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => setReplyingTo(reply)}
+                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-400 hover:text-amber-400 transition-colors cursor-pointer"
+                                      >
+                                        <CornerDownRight className="w-3 h-3" />
+                                        <span>Reply</span>
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
                           </div>
-                        </div>
-                        <p className="text-stone-300 leading-relaxed">{comment.content}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

@@ -16,9 +16,12 @@ import {
   Send,
   Timer,
   ShoppingCart,
-  Flag
+  Flag,
+  Heart,
+  CornerDownRight,
+  X
 } from 'lucide-react';
-import { Recipe, RecipeRating, Comment } from '../types';
+import { Recipe, RecipeRating, Comment, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
 import { CookingTimer } from '../components/CookingTimer';
@@ -31,6 +34,7 @@ import { db } from '../lib/firebase';
 
 interface RecipeDetailPageProps {
   recipe: Recipe;
+  creatorProfile?: UserProfile;
   onBack: () => void;
   onSelectChef: (chefId: string) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
@@ -41,6 +45,7 @@ interface RecipeDetailPageProps {
 
 export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   recipe,
+  creatorProfile,
   onBack,
   onSelectChef,
   onRequestSubscribe,
@@ -48,7 +53,17 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   onAddToShoppingList,
   onReportContent
 }) => {
-  const { currentUser, userProfile, isRecipeBookmarked, toggleBookmark, isSubscribedToChef, setPendingAction, blockedUserIds } = useAuth();
+  const {
+    currentUser,
+    userProfile,
+    isRecipeBookmarked,
+    toggleBookmark,
+    isRecipeLiked,
+    toggleLikeRecipe,
+    isSubscribedToChef,
+    setPendingAction,
+    blockedUserIds
+  } = useAuth();
   
   const [servingsMultiplier, setServingsMultiplier] = useState(1);
   const [checkedIngredients, setCheckedIngredients] = useState<Record<number, boolean>>({});
@@ -64,11 +79,13 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   const [hasRated, setHasRated] = useState(false);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
 
-  // Comments state
+  // Comments & image state
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentInput, setCommentInput] = useState('');
+  const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string>('');
+  const [heroImageError, setHeroImageError] = useState(false);
 
   // Resolve cooking video URL for all devices and users
   useEffect(() => {
@@ -89,9 +106,10 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
     return () => { isMounted = false; };
   }, [recipe.videoUrl, recipe.id]);
 
-  // Sync live recipe document (for real-time ratingAverage / ratingCount updates)
+  // Sync live recipe document (for real-time ratingAverage / ratingCount / likesCount updates)
   useEffect(() => {
     setLiveRecipe(recipe);
+    setHeroImageError(false);
     const unsubDoc = onSnapshot(doc(db, 'recipes', recipe.id), (snap) => {
       if (snap.exists()) {
         setLiveRecipe({ id: snap.id, ...(snap.data() as Omit<Recipe, 'id'>) });
@@ -144,6 +162,11 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
     : (ratingCount > 0 && typeof liveRecipe.ratingAverage === 'number' ? liveRecipe.ratingAverage : 0);
 
   const bookmarked = isRecipeBookmarked(recipe.id);
+  const liked = isRecipeLiked(recipe.id);
+  const hasHeroImage = Boolean(liveRecipe.imageUrl && liveRecipe.imageUrl.trim().length > 0) && !heroImageError;
+  const authorName = creatorProfile?.displayName || liveRecipe.authorName || recipe.authorName;
+  const authorPhoto = creatorProfile?.photoURL || liveRecipe.authorPhoto || recipe.authorPhoto;
+  const authorFollowers = creatorProfile?.followerCount ?? 0;
   const isPremiumLocked = recipe.isPremium && !isSubscribedToChef(recipe.authorId);
 
   const baseServings = recipe.servings || 4;
@@ -195,34 +218,102 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!commentInput.trim() || commentSubmitting) return;
+    const trimmed = commentInput.trim();
+    if (!trimmed || commentSubmitting) return;
+
+    const parentId = replyingTo ? (replyingTo.parentId || replyingTo.id) : undefined;
+    const replyToUserId = replyingTo?.userId;
+    const replyToUserName = replyingTo?.userName;
 
     if (!currentUser) {
       // Prompt sign in and hold comment pending as requested
       setPendingAction({
         type: 'comment_recipe',
         recipeId: recipe.id,
-        content: commentInput.trim(),
-        targetTitle: recipe.title
+        content: trimmed,
+        targetTitle: recipe.title,
+        parentId,
+        replyToUserId,
+        replyToUserName,
+        authorId: liveRecipe.authorId,
       });
       if (onOpenAuthModal) onOpenAuthModal('login', 'user');
       return;
     }
+
+    const actorName = userProfile?.displayName || currentUser.displayName || 'Food Explorer';
+    const actorPhoto = userProfile?.photoURL || currentUser.photoURL || '';
 
     setCommentSubmitting(true);
     try {
       await RecipeService.addComment(recipe.id, {
         recipeId: recipe.id,
         userId: currentUser.uid,
-        userName: userProfile?.displayName || 'Food Explorer',
-        userPhoto: userProfile?.photoURL || '',
-        content: commentInput.trim()
+        userName: actorName,
+        userPhoto: actorPhoto,
+        authorRole: userProfile?.role || 'user',
+        parentId,
+        replyToUserId,
+        replyToUserName,
+        content: trimmed,
       });
+
+      if (replyingTo && replyingTo.userId && replyingTo.userId !== currentUser.uid) {
+        RecipeService.createNotification(replyingTo.userId, {
+          type: 'comment_reply',
+          title: `${actorName} replied to your comment`,
+          message: trimmed,
+          actorId: currentUser.uid,
+          actorName,
+          actorPhoto,
+          targetId: recipe.id,
+          targetType: 'recipe',
+          link: `recipe:${recipe.id}`,
+        }).catch(() => {});
+      }
+
+      if (
+        liveRecipe.authorId &&
+        liveRecipe.authorId !== currentUser.uid &&
+        liveRecipe.authorId !== replyingTo?.userId
+      ) {
+        RecipeService.createNotification(liveRecipe.authorId, {
+          type: 'new_comment',
+          title: `${actorName} commented on "${recipe.title}"`,
+          message: trimmed,
+          actorId: currentUser.uid,
+          actorName,
+          actorPhoto,
+          targetId: recipe.id,
+          targetType: 'recipe',
+          link: `recipe:${recipe.id}`,
+        }).catch(() => {});
+      }
+
       setCommentInput('');
+      setReplyingTo(null);
     } catch (err) {
       console.error("Failed to add comment:", err);
     } finally {
       setCommentSubmitting(false);
+    }
+  };
+
+  const handleToggleLike = async () => {
+    if (!currentUser) {
+      setPendingAction({
+        type: 'like_recipe',
+        recipeId: recipe.id,
+        recipeTitle: recipe.title,
+        authorId: liveRecipe.authorId,
+      });
+      if (onOpenAuthModal) onOpenAuthModal('login', 'user');
+      return;
+    }
+    try {
+      await toggleLikeRecipe(liveRecipe);
+    } catch (err) {
+      console.warn('Could not toggle recipe like:', err);
     }
   };
 
@@ -257,11 +348,25 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
           <span>Back to recipes</span>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={handleToggleLike}
+            className={`px-3.5 py-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              liked
+                ? 'bg-red-50 border-red-200 text-red-600'
+                : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
+            }`}
+            aria-label={liked ? 'Unlike recipe' : 'Like recipe'}
+          >
+            <Heart className={`w-4 h-4 ${liked ? 'fill-red-500 text-red-500' : ''}`} />
+            <span className="tabular-nums">{liveRecipe.likesCount || 0}</span>
+          </button>
+
           <button
             type="button"
             onClick={handleShare}
-            className="p-2.5 rounded-xl border border-stone-200 text-stone-600 hover:text-stone-900 hover:bg-stone-50 transition-colors"
+            className="p-2.5 rounded-xl border border-stone-200 text-stone-600 hover:text-stone-900 hover:bg-stone-50 transition-colors cursor-pointer"
             title="Share recipe"
           >
             <Share2 className="w-4 h-4" />
@@ -274,14 +379,15 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                 setPendingAction({
                   type: 'like_recipe',
                   recipeId: recipe.id,
-                  recipeTitle: recipe.title
+                  recipeTitle: recipe.title,
+                  authorId: liveRecipe.authorId,
                 });
                 if (onOpenAuthModal) onOpenAuthModal('login', 'user');
                 return;
               }
               toggleBookmark(recipe);
             }}
-            className={`px-4 py-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-4 py-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
               bookmarked
                 ? 'bg-amber-600 border-amber-600 text-white shadow-xs'
                 : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -317,7 +423,13 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
       <div className="space-y-6">
         <div>
           {/* Metadata */}
-          <div className="flex items-center gap-2 text-xs text-stone-500 font-medium mb-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500 font-medium mb-2">
+            {recipe.isPremium && !hasHeroImage && (
+              <span className="bg-amber-600 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md inline-flex items-center gap-1 mr-1">
+                <Lock className="w-3 h-3" />
+                <span>VIP Masterclass Recipe</span>
+              </span>
+            )}
             <span className="text-amber-700 uppercase tracking-wider font-semibold">{recipe.cuisine} Cuisine</span>
             <span aria-hidden="true">·</span>
             <span className="capitalize">{recipe.category}</span>
@@ -340,48 +452,64 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
         </div>
 
         {/* Chef Credit Banner */}
-        <div className="p-4 rounded-2xl bg-white border border-stone-200/80 flex items-center justify-between shadow-2xs">
-          <button
+        <div className="p-4 rounded-2xl bg-white border border-stone-200/80 flex items-center justify-between gap-3 shadow-2xs">
+          <div
             onClick={() => onSelectChef(recipe.authorId)}
-            className="flex items-center gap-3 text-left group"
+            className="flex items-center gap-3.5 text-left group cursor-pointer min-w-0"
           >
             <UserAvatar
-              src={recipe.authorPhoto}
+              src={authorPhoto}
               seed={recipe.authorId}
-              name={recipe.authorName}
+              name={authorName}
               size="lg"
+              showFollowButton
+              creatorId={recipe.authorId}
+              creatorName={authorName}
+              creatorPhoto={authorPhoto}
+              onRequireAuth={() => onOpenAuthModal?.('login', 'user')}
             />
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-stone-500 font-medium">Recipe created by</p>
-              <p className="font-serif-display text-base font-bold text-stone-900 group-hover:text-amber-700 transition-colors">
-                {recipe.authorName}
+              <p className="font-serif-display text-base font-bold text-stone-900 group-hover:text-amber-700 transition-colors truncate">
+                {authorName}
               </p>
+              <div className="flex items-center gap-2 text-[11px] text-stone-500">
+                {creatorProfile?.username && <span>@{creatorProfile.username}</span>}
+                {creatorProfile?.username && <span aria-hidden="true">·</span>}
+                <span className="tabular-nums font-medium">
+                  {authorFollowers.toLocaleString()} {authorFollowers === 1 ? 'follower' : 'followers'}
+                </span>
+              </div>
             </div>
-          </button>
+          </div>
 
           <button
+            type="button"
             onClick={() => onSelectChef(recipe.authorId)}
-            className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition-colors"
+            className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition-colors shrink-0 cursor-pointer"
           >
             View Chef Profile
           </button>
         </div>
 
-        {/* Hero Image */}
-        <div className="relative aspect-16/9 rounded-3xl overflow-hidden bg-stone-100 shadow-md">
-          <img
-            src={recipe.imageUrl}
-            alt={recipe.title}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover"
-          />
-          {recipe.isPremium && (
-            <div className="absolute top-4 left-4 bg-amber-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-md flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5" />
-              <span>VIP Masterclass Recipe</span>
-            </div>
-          )}
-        </div>
+        {/* Hero Image (Completely omitted from DOM if creator uploaded no image) */}
+        {hasHeroImage && (
+          <div className="relative aspect-16/9 rounded-3xl overflow-hidden bg-stone-100 shadow-md">
+            <img
+              src={liveRecipe.imageUrl}
+              alt={recipe.title}
+              referrerPolicy="no-referrer"
+              onError={() => setHeroImageError(true)}
+              className="w-full h-full object-cover"
+            />
+            {recipe.isPremium && (
+              <div className="absolute top-4 left-4 bg-amber-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-md flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" />
+                <span>VIP Masterclass Recipe</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Culinary Spec Strip */}
@@ -704,10 +832,35 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
 
             {/* Comment Form */}
             <form onSubmit={handleAddComment} className="space-y-3">
+              {replyingTo && (
+                <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900">
+                  <span className="flex items-center gap-1.5 font-medium truncate">
+                    <CornerDownRight className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>
+                      Replying to <strong>{replyingTo.userName}</strong>
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="p-1 rounded-lg hover:bg-amber-100 text-amber-800 cursor-pointer shrink-0"
+                    aria-label="Cancel reply"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               <textarea
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
-                placeholder={currentUser ? "Share cooking tips, adjustments, or praise for the chef..." : "Type your cooking note or question... Click Send to post after signing in."}
+                placeholder={
+                  replyingTo
+                    ? `Write a reply to ${replyingTo.userName}...`
+                    : currentUser
+                    ? "Ask the chef a question, share tips, or discuss this recipe..."
+                    : "Type your cooking note or question... Click Post to sign in and submit."
+                }
                 rows={3}
                 className="w-full text-xs sm:text-sm p-4 rounded-2xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50"
                 maxLength={1000}
@@ -716,10 +869,10 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                 <button
                   type="submit"
                   disabled={!commentInput.trim() || commentSubmitting}
-                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition-colors shadow-xs flex items-center gap-2 disabled:opacity-40 self-start sm:self-auto"
+                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition-colors shadow-xs flex items-center gap-2 disabled:opacity-40 self-start sm:self-auto cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Post Cooking Note</span>
+                  <span>{replyingTo ? 'Post Reply' : 'Post Cooking Note'}</span>
                 </button>
                 {!currentUser && (
                   <p className="text-[11px] text-stone-500">
@@ -729,61 +882,176 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
               </div>
             </form>
 
+            {/* Comments List (Filtered for blocked users & grouped into threaded replies) */}
+            {(() => {
+              const visibleComments = comments.filter((c) => !blockedUserIds.includes(c.userId));
+              const topLevelComments = visibleComments.filter((c) => !c.parentId);
+              const repliesByParent: Record<string, Comment[]> = {};
+              visibleComments
+                .filter((c) => Boolean(c.parentId))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                .forEach((reply) => {
+                  const key = reply.parentId!;
+                  if (!repliesByParent[key]) repliesByParent[key] = [];
+                  repliesByParent[key].push(reply);
+                });
 
-            {/* Comments List (Filtered for blocked users) */}
-            <div className="space-y-4 pt-2">
-              {comments.filter((c) => !blockedUserIds.includes(c.userId)).length === 0 ? (
-                <p className="text-xs text-stone-400 text-center py-4">
-                  No cooking comments yet. Be the first to try this recipe!
-                </p>
-              ) : (
-                comments
-                  .filter((c) => !blockedUserIds.includes(c.userId))
-                  .map((comment) => (
-                  <div key={comment.id} className="p-4 rounded-2xl bg-stone-50/80 border border-stone-200/70 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <UserAvatar
-                          src={comment.userPhoto}
-                          seed={comment.userId || comment.userName}
-                          name={comment.userName}
-                          size="xs"
-                          ring={false}
-                        />
-                        <span className="font-semibold text-stone-800">{comment.userName}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-stone-400 text-[11px]">
-                          {new Date(comment.createdAt).toLocaleDateString()}
-                        </span>
-                        {onReportContent && comment.userId !== currentUser?.uid && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onReportContent({
-                                targetType: 'recipe_comment',
-                                targetId: comment.id,
-                                targetTitle: `Recipe comment by ${comment.userName}`,
-                                targetAuthorId: comment.userId,
-                                targetAuthorName: comment.userName,
-                              })
-                            }
-                            className="text-stone-400 hover:text-red-600 transition-colors cursor-pointer"
-                            title="Report comment or block user"
-                            aria-label="Report comment"
-                          >
-                            <Flag className="w-3.5 h-3.5" />
-                          </button>
+              if (visibleComments.length === 0) {
+                return (
+                  <p className="text-xs text-stone-400 text-center py-4">
+                    No cooking comments yet. Be the first to ask the chef a question or share feedback!
+                  </p>
+                );
+              }
+
+              return (
+                <div className="space-y-4 pt-2">
+                  {topLevelComments.map((comment) => {
+                    const isRecipeChef = comment.authorRole === 'chef' || comment.userId === liveRecipe.authorId;
+                    const childReplies = repliesByParent[comment.id] || [];
+                    return (
+                      <div key={comment.id} className="space-y-2">
+                        <div className="p-4 rounded-2xl bg-stone-50/80 border border-stone-200/70 space-y-2">
+                          <div className="flex items-center justify-between text-xs gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <UserAvatar
+                                src={comment.userPhoto}
+                                seed={comment.userId || comment.userName}
+                                name={comment.userName}
+                                size="xs"
+                                ring={false}
+                              />
+                              <span className="font-semibold text-stone-800 truncate">{comment.userName}</span>
+                              {isRecipeChef && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider shrink-0">
+                                  Chef
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-stone-400 text-[11px]">
+                                {new Date(comment.createdAt).toLocaleDateString()}
+                              </span>
+                              {onReportContent && comment.userId !== currentUser?.uid && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onReportContent({
+                                      targetType: 'recipe_comment',
+                                      targetId: comment.id,
+                                      targetTitle: `Recipe comment by ${comment.userName}`,
+                                      targetAuthorId: comment.userId,
+                                      targetAuthorName: comment.userName,
+                                    })
+                                  }
+                                  className="text-stone-400 hover:text-red-600 transition-colors cursor-pointer"
+                                  title="Report comment or block user"
+                                  aria-label="Report comment"
+                                >
+                                  <Flag className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="text-xs sm:text-sm text-stone-700 pl-8 leading-relaxed">
+                            {comment.content}
+                          </p>
+
+                          <div className="pl-8 flex items-center gap-3 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setReplyingTo(comment)}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-500 hover:text-amber-700 transition-colors cursor-pointer"
+                            >
+                              <CornerDownRight className="w-3 h-3" />
+                              <span>Reply</span>
+                            </button>
+                            {childReplies.length > 0 && (
+                              <span className="text-[11px] text-stone-400">
+                                {childReplies.length} {childReplies.length === 1 ? 'reply' : 'replies'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Nested Replies */}
+                        {childReplies.length > 0 && (
+                          <div className="pl-5 sm:pl-8 space-y-2 border-l-2 border-amber-200/70 ml-4">
+                            {childReplies.map((reply) => {
+                              const isReplyChef = reply.authorRole === 'chef' || reply.userId === liveRecipe.authorId;
+                              return (
+                                <div key={reply.id} className="p-3.5 rounded-2xl bg-white border border-stone-200/70 space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <UserAvatar
+                                        src={reply.userPhoto}
+                                        seed={reply.userId || reply.userName}
+                                        name={reply.userName}
+                                        size="xs"
+                                        ring={false}
+                                      />
+                                      <span className="font-semibold text-stone-800 truncate">{reply.userName}</span>
+                                      {isReplyChef && (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider shrink-0">
+                                          Chef
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="text-stone-400 text-[11px]">
+                                        {new Date(reply.createdAt).toLocaleDateString()}
+                                      </span>
+                                      {onReportContent && reply.userId !== currentUser?.uid && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onReportContent({
+                                              targetType: 'recipe_comment',
+                                              targetId: reply.id,
+                                              targetTitle: `Recipe reply by ${reply.userName}`,
+                                              targetAuthorId: reply.userId,
+                                              targetAuthorName: reply.userName,
+                                            })
+                                          }
+                                          className="text-stone-400 hover:text-red-600 transition-colors cursor-pointer"
+                                          title="Report reply"
+                                          aria-label="Report reply"
+                                        >
+                                          <Flag className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="text-xs sm:text-sm text-stone-700 pl-8 leading-relaxed">
+                                    {reply.replyToUserName && (
+                                      <span className="text-amber-700 font-semibold mr-1.5">
+                                        @{reply.replyToUserName}
+                                      </span>
+                                    )}
+                                    {reply.content}
+                                  </p>
+                                  <div className="pl-8">
+                                    <button
+                                      type="button"
+                                      onClick={() => setReplyingTo(reply)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-500 hover:text-amber-700 transition-colors cursor-pointer"
+                                    >
+                                      <CornerDownRight className="w-3 h-3" />
+                                      <span>Reply</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
-                    </div>
-                    <p className="text-xs sm:text-sm text-stone-700 pl-8 leading-relaxed">
-                      {comment.content}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
         </div>

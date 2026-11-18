@@ -21,29 +21,44 @@ import { useAuth } from '../context/AuthContext';
 interface HomePageProps {
   recipes: Recipe[];
   videos: CookingVideo[];
+  creatorsMap?: Record<string, UserProfile>;
   onSelectRecipe: (recipe: Recipe) => void;
   onPlayVideo: (video: CookingVideo) => void;
   onNavigate: (view: string, params?: any) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup') => void;
   onShareVideo?: (video: CookingVideo) => void;
+  onShareRecipe?: (recipe: Recipe) => void;
   onSelectChef?: (chefId: string) => void;
+  onCommentVideo?: (video: CookingVideo) => void;
+  onReportVideo?: (video: CookingVideo) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
   recipes,
   videos,
+  creatorsMap,
   onSelectRecipe,
   onPlayVideo,
   onNavigate,
   onRequestSubscribe,
   onOpenAuthModal,
   onShareVideo,
-  onSelectChef
+  onShareRecipe,
+  onSelectChef,
+  onCommentVideo,
+  onReportVideo
 }) => {
-  const { currentUser, userProfile, setPendingAction } = useAuth();
+  const { currentUser, userProfile, followedChefs, setPendingAction } = useAuth();
   const isChef = userProfile?.role === 'chef';
   const [mobileCategory, setMobileCategory] = React.useState<string>('all');
+  const [desktopVideoCategory, setDesktopVideoCategory] = React.useState<string>('all');
+  const [desktopVideoSort, setDesktopVideoSort] = React.useState<'latest' | 'views' | 'likes'>('latest');
+
+  const followedIds = React.useMemo(
+    () => new Set(followedChefs.map((f) => f.chefId)),
+    [followedChefs]
+  );
 
   const categories = [
     { id: 'all', label: 'All Recipes' },
@@ -55,34 +70,89 @@ export const HomePage: React.FC<HomePageProps> = ({
   ];
 
   const featuredRecipes = recipes.slice(0, 6);
-  const featuredVideos = videos.slice(0, 3);
 
   const mobilePills = [
     { id: 'all', label: 'All' },
-    { id: 'trending', label: 'Trending' },
+    { id: 'recommended', label: 'Recommended' },
+    { id: 'following', label: 'Following' },
+    { id: 'vip', label: 'VIP Masterclasses' },
     { id: 'technique', label: 'Knife Skills' },
     { id: 'rice', label: 'Rice & Grains' },
     { id: 'soups', label: 'Soups & Stews' },
     { id: 'pasta', label: 'Handmade Pasta' },
     { id: 'desserts', label: 'Pastry & Baking' },
-    { id: 'vip', label: 'VIP Masterclasses' },
+    { id: 'recipes', label: 'Recipes' },
   ];
 
-  const filteredMobileVideos = React.useMemo(() => {
-    return videos.filter((v) => {
-      if (mobileCategory === 'all') return true;
-      if (mobileCategory === 'vip') return v.isPremium;
-      if (mobileCategory === 'trending') return (v.viewCount || 0) >= 50;
-      const cat = (v.category || '').toLowerCase();
-      const title = (v.title || '').toLowerCase();
-      if (mobileCategory === 'technique') return cat.includes('technique') || title.includes('knife') || title.includes('prep');
-      if (mobileCategory === 'rice') return cat.includes('rice') || title.includes('rice') || title.includes('grain');
-      if (mobileCategory === 'soups') return cat.includes('soup') || title.includes('soup') || title.includes('stew');
-      if (mobileCategory === 'pasta') return cat.includes('pasta') || title.includes('pasta') || title.includes('noodle');
-      if (mobileCategory === 'desserts') return cat.includes('dessert') || title.includes('cake') || title.includes('baking') || title.includes('pastry');
-      return true;
+  const desktopVideoPills = [
+    { id: 'all', label: 'All' },
+    { id: 'recommended', label: 'Recommended' },
+    { id: 'following', label: 'Following' },
+    { id: 'vip', label: 'VIP Masterclasses' },
+    { id: 'technique', label: 'Technique' },
+    { id: 'knife', label: 'Knife Skills' },
+    { id: 'rice', label: 'Rice & Grains' },
+    { id: 'soups', label: 'Soups & Stews' },
+    { id: 'pasta', label: 'Handmade Pasta' },
+    { id: 'desserts', label: 'Pastry & Baking' },
+  ];
+
+  const filterVideosByChip = React.useCallback(
+    (list: CookingVideo[], chip: string) => {
+      if (chip === 'recipes') return [];
+      const base = list.filter((v) => {
+        if (chip === 'all') return true;
+        if (chip === 'recommended') return true;
+        if (chip === 'following') return followedIds.has(v.authorId);
+        if (chip === 'vip') return Boolean(v.isPremium);
+        const cat = (v.category || '').toLowerCase();
+        const title = (v.title || '').toLowerCase();
+        const tags = (v.tags || []).join(' ').toLowerCase();
+        if (chip === 'technique') return cat.includes('technique') || tags.includes('technique');
+        if (chip === 'knife') return cat.includes('knife') || cat.includes('technique') || title.includes('knife') || title.includes('prep');
+        if (chip === 'rice') return cat.includes('rice') || title.includes('rice') || title.includes('grain');
+        if (chip === 'soups') return cat.includes('soup') || title.includes('soup') || title.includes('stew');
+        if (chip === 'pasta') return cat.includes('pasta') || title.includes('pasta') || title.includes('noodle');
+        if (chip === 'desserts') return cat.includes('dessert') || title.includes('cake') || title.includes('baking') || title.includes('pastry');
+        return true;
+      });
+
+      if (chip === 'recommended') {
+        return [...base].sort((a, b) => {
+          const scoreA =
+            (followedIds.has(a.authorId) ? 100 : 0) +
+            (a.likesCount || 0) * 3 +
+            (a.viewCount || 0) * 0.25 +
+            new Date(a.createdAt || 0).getTime() / 1e11;
+          const scoreB =
+            (followedIds.has(b.authorId) ? 100 : 0) +
+            (b.likesCount || 0) * 3 +
+            (b.viewCount || 0) * 0.25 +
+            new Date(b.createdAt || 0).getTime() / 1e11;
+          return scoreB - scoreA;
+        });
+      }
+
+      return base;
+    },
+    [followedIds]
+  );
+
+  const filteredMobileVideos = React.useMemo(
+    () => filterVideosByChip(videos, mobileCategory),
+    [videos, mobileCategory, filterVideosByChip]
+  );
+
+  const filteredDesktopVideos = React.useMemo(() => {
+    const filtered = filterVideosByChip(videos, desktopVideoCategory);
+    const sorted = [...filtered].sort((a, b) => {
+      if (desktopVideoSort === 'views') return (b.viewCount || 0) - (a.viewCount || 0);
+      if (desktopVideoSort === 'likes') return (b.likesCount || 0) - (a.likesCount || 0);
+      if (desktopVideoCategory === 'recommended') return 0; // preserve personalized order
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
-  }, [videos, mobileCategory]);
+    return sorted.slice(0, 9);
+  }, [videos, desktopVideoCategory, desktopVideoSort, filterVideosByChip]);
 
   return (
     <div className="pb-16 md:pb-24">
@@ -110,33 +180,86 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
 
         {/* Vertically scrolling video feed */}
-        <div className="divide-y divide-stone-100 pt-1">
-          {filteredMobileVideos.length > 0 ? (
-            filteredMobileVideos.map((video) => (
-              <MobileYouTubeVideoCard
-                key={video.id}
-                video={video}
-                onPlay={onPlayVideo}
-                onRequestSubscribe={onRequestSubscribe}
-                onSelectChef={onSelectChef}
-                onShare={onShareVideo}
-                onOpenAuthModal={() => onOpenAuthModal?.('login')}
-              />
-            ))
-          ) : (
-            <div className="py-16 text-center space-y-2 px-4">
-              <Video className="w-10 h-10 text-stone-400 mx-auto" />
-              <p className="font-serif-display font-bold text-stone-800">No videos in this category yet</p>
+        {mobileCategory !== 'recipes' && (
+          <div className="divide-y divide-stone-100 dark:divide-stone-800 pt-1">
+            {filteredMobileVideos.length > 0 ? (
+              filteredMobileVideos.map((video) => (
+                <MobileYouTubeVideoCard
+                  key={video.id}
+                  video={video}
+                  creatorProfile={creatorsMap?.[video.authorId]}
+                  onPlay={onPlayVideo}
+                  onRequestSubscribe={onRequestSubscribe}
+                  onSelectChef={onSelectChef}
+                  onShare={onShareVideo}
+                  onCommentClick={onCommentVideo}
+                  onReport={onReportVideo}
+                  onOpenAuthModal={() => onOpenAuthModal?.('login')}
+                />
+              ))
+            ) : (
+              <div className="py-16 text-center space-y-2.5 px-4">
+                <Video className="w-10 h-10 text-stone-400 mx-auto" />
+                <p className="font-serif-display font-bold text-stone-800 dark:text-stone-100">
+                  {mobileCategory === 'following'
+                    ? 'No videos from followed creators yet'
+                    : 'No videos in this category yet'}
+                </p>
+                <p className="text-xs text-stone-500 max-w-xs mx-auto">
+                  {mobileCategory === 'following'
+                    ? 'Tap the green + icon on any creator’s profile picture to follow their kitchen updates.'
+                    : 'Try another category or explore all culinary tutorials.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMobileCategory('all')}
+                  className="px-3.5 py-2 bg-amber-600 text-white text-xs font-semibold rounded-xl cursor-pointer"
+                >
+                  View all videos
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mobile Recipes Feed when "All" or "Recipes" is selected */}
+        {(mobileCategory === 'all' || mobileCategory === 'recipes') && featuredRecipes.length > 0 && (
+          <div className="px-3.5 pt-6 pb-4 space-y-4 border-t border-stone-200/80 dark:border-stone-800 mt-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 font-semibold uppercase tracking-wider">
+                  <UtensilsCrossed className="w-3.5 h-3.5" />
+                  <span>Chef Recipes</span>
+                </div>
+                <h2 className="font-serif-display text-lg font-bold text-stone-900 dark:text-stone-100">
+                  Published Culinary Recipes
+                </h2>
+              </div>
               <button
                 type="button"
-                onClick={() => setMobileCategory('all')}
-                className="px-3.5 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-xl"
+                onClick={() => onNavigate('explore')}
+                className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1 cursor-pointer"
               >
-                View all videos
+                <span>See all</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
-          )}
-        </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {featuredRecipes.map((recipe) => (
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  creatorProfile={creatorsMap?.[recipe.authorId]}
+                  onSelect={onSelectRecipe}
+                  onSelectChef={(chefId) => (onSelectChef ? onSelectChef(chefId) : onNavigate('chef-profile', { chefId }))}
+                  onOpenAuthModal={() => onOpenAuthModal?.('login')}
+                  onShare={onShareRecipe}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ======================================================== */}
@@ -326,22 +449,25 @@ export const HomePage: React.FC<HomePageProps> = ({
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
+                creatorProfile={creatorsMap?.[recipe.authorId]}
                 onSelect={onSelectRecipe}
-                onSelectChef={(chefId) => onNavigate('chef-profile', { chefId })}
+                onSelectChef={(chefId) => (onSelectChef ? onSelectChef(chefId) : onNavigate('chef-profile', { chefId }))}
+                onOpenAuthModal={() => onOpenAuthModal?.('login')}
+                onShare={onShareRecipe}
               />
             ))}
           </div>
         )}
       </section>
 
-      {/* 4. Cooking Videos & Masterclasses Section */}
-      <section className="bg-stone-900 text-white py-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto space-y-8">
+      {/* 4. YouTube-Inspired Culinary Video Feed & Masterclasses Section */}
+      <section className="bg-stone-900 text-white py-14 sm:py-16 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto space-y-6">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
               <div className="flex items-center gap-1.5 text-xs text-amber-400 font-semibold uppercase tracking-wider mb-1">
                 <Video className="w-3.5 h-3.5" />
-                <span>Culinary Video Guides</span>
+                <span>Culinary Video Feed</span>
               </div>
               <h2 className="font-serif-display text-2xl sm:text-3xl font-bold tracking-tight text-white">
                 Step-by-Step Cooking Videos
@@ -351,25 +477,80 @@ export const HomePage: React.FC<HomePageProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={() => onNavigate('videos')}
-              className="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1 self-start md:self-auto"
-            >
-              <span>View All Videos</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-3 self-start md:self-auto">
+              <select
+                value={desktopVideoSort}
+                onChange={(e) => setDesktopVideoSort(e.target.value as 'latest' | 'views' | 'likes')}
+                aria-label="Sort cooking videos"
+                className="px-3 py-2 rounded-xl bg-stone-800 border border-stone-700 text-xs font-semibold text-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+              >
+                <option value="latest">Latest Uploads</option>
+                <option value="views">Most Viewed</option>
+                <option value="likes">Most Liked</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('videos')}
+                className="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <span>View All Videos</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Horizontal Scrollable Category Navigation */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            {desktopVideoPills.map((pill) => (
+              <button
+                key={pill.id}
+                type="button"
+                onClick={() => setDesktopVideoCategory(pill.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                  desktopVideoCategory === pill.id
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-white border border-stone-700/80'
+                }`}
+              >
+                {pill.label}
+              </button>
+            ))}
           </div>
 
           {videos.length === 0 ? (
             <p className="text-xs text-stone-400 text-center py-8">
               No cooking videos posted yet. New video tutorials are arriving soon.
             </p>
+          ) : filteredDesktopVideos.length === 0 ? (
+            <div className="py-12 rounded-2xl bg-stone-800/50 border border-stone-800 text-center space-y-2.5 px-4">
+              <Video className="w-8 h-8 text-amber-400 mx-auto" />
+              <p className="font-serif-display text-base font-bold text-white">
+                {desktopVideoCategory === 'following'
+                  ? 'No videos from followed creators yet'
+                  : 'No videos match this category yet'}
+              </p>
+              <p className="text-xs text-stone-400 max-w-md mx-auto">
+                {desktopVideoCategory === 'following'
+                  ? 'Click the glowing green + icon on any creator’s profile picture to follow them and see their new uploads here.'
+                  : 'Switch categories to browse more step-by-step culinary masterclasses.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setDesktopVideoCategory('all')}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Show All Videos
+              </button>
+            </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {featuredVideos.map((video) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredDesktopVideos.map((video) => (
                 <VideoCard
                   key={video.id}
                   video={video}
+                  creatorProfile={creatorsMap?.[video.authorId]}
+                  onSelectChef={(chefId) => (onSelectChef ? onSelectChef(chefId) : onNavigate('chef-profile', { chefId }))}
                   onPlay={(v) => {
                     if (v.isPremium && !currentUser) {
                       setPendingAction({ type: 'watch_video', video: v });
@@ -379,6 +560,8 @@ export const HomePage: React.FC<HomePageProps> = ({
                     onPlayVideo(v);
                   }}
                   onShare={onShareVideo}
+                  onCommentClick={onCommentVideo}
+                  onReport={onReportVideo}
                   onRequestSubscribe={onRequestSubscribe}
                   isGuestRestricted={video.isPremium && !currentUser}
                   onOpenAuthModal={() => {

@@ -27,11 +27,15 @@ import {
   Share2,
   Flag,
   Ban,
-  Lock
+  Lock,
+  Video,
+  UserPlus,
+  UserCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Recipe, CookingVideo, UserBadge, UserProfile } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
+import { VideoCard } from '../components/VideoCard';
 import { UserAvatar } from '../components/UserAvatar';
 import { DEFAULT_AVATARS, getDefaultAvatar } from '../constants/avatars';
 import { processDeviceImage } from '../lib/imageUtils';
@@ -45,24 +49,51 @@ import { isDummyOrAiAccountId } from '../data/starterRecipes';
 interface UserProfilePageProps {
   recipes: Recipe[];
   videos: CookingVideo[];
+  creatorsMap?: Record<string, UserProfile>;
   onSelectRecipe: (recipe: Recipe) => void;
+  onPlayVideo?: (video: CookingVideo) => void;
   onSelectChef: (chefId: string) => void;
+  onRequestSubscribe?: (chefId: string, chefName: string) => void;
   onNavigate: (view: string, params?: any) => void;
   onOpenAuthModal: (mode?: 'login' | 'signup') => void;
   viewUserId?: string;
   onReportContent?: (target: ReportTarget) => void;
+  onShareVideo?: (video: CookingVideo) => void;
+  onCommentVideo?: (video: CookingVideo) => void;
+  onReportVideo?: (video: CookingVideo) => void;
+  onShareRecipe?: (recipe: Recipe) => void;
 }
 
 export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   recipes,
+  videos,
+  creatorsMap,
   onSelectRecipe,
+  onPlayVideo,
   onSelectChef,
+  onRequestSubscribe,
   onNavigate,
   onOpenAuthModal,
   viewUserId,
-  onReportContent
+  onReportContent,
+  onShareVideo,
+  onCommentVideo,
+  onReportVideo,
+  onShareRecipe
 }) => {
-  const { currentUser, userProfile, favourites, activeSubscriptions, updateProfileData, blockedUserIds, blockUser, unblockUser } = useAuth();
+  const {
+    currentUser,
+    userProfile,
+    favourites,
+    activeSubscriptions,
+    updateProfileData,
+    blockedUserIds,
+    blockUser,
+    unblockUser,
+    isFollowingChef,
+    toggleFollowChef,
+    setPendingAction,
+  } = useAuth();
   const [activeTab, setActiveTab] = useState<'favourites' | 'subscriptions' | 'avatars' | 'badges'>('favourites');
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
@@ -201,6 +232,36 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
       ? new Date(publicUser.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
       : 'Oct 2026';
     const publicUserRecipes = recipes.filter(r => r.authorId === publicUser.id && (!r.status || r.status === 'published'));
+    const publicUserVideos = videos.filter(v => v.authorId === publicUser.id && (!v.status || v.status === 'published'));
+    const isFollowingPublic = isFollowingChef(publicUser.id);
+
+    const handleFollowPublicUser = async () => {
+      if (!currentUser) {
+        setPendingAction({
+          type: 'follow_chef',
+          chefId: publicUser.id,
+          chefName: publicUser.displayName,
+        });
+        onOpenAuthModal('login');
+        return;
+      }
+      const prevFollowed = isFollowingPublic;
+      try {
+        const nowFollowing = await toggleFollowChef(publicUser.id, {
+          name: publicUser.displayName,
+          photo: publicUser.photoURL,
+          specialty: publicUser.specialty,
+        });
+        if (nowFollowing !== prevFollowed) {
+          const delta = nowFollowing ? 1 : -1;
+          setPublicUser((prev) =>
+            prev ? { ...prev, followerCount: Math.max(0, (prev.followerCount || 0) + delta) } : null
+          );
+        }
+      } catch {
+        // Ignore follow notice
+      }
+    };
 
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -214,13 +275,24 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                 seed={publicUser.id}
                 size="2xl"
                 className="ring-4 ring-amber-500/30"
+                showFollowButton
+                creatorId={publicUser.id}
+                creatorName={publicUser.displayName}
+                creatorPhoto={publicUser.photoURL}
+                creatorSpecialty={publicUser.specialty}
+                onRequireAuth={() => onOpenAuthModal('login')}
               />
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     <Utensils className="w-3.5 h-3.5" />
-                    <span>Food Lover</span>
+                    <span>{publicUser.role === 'chef' ? 'Master Chef' : 'Food Lover'}</span>
                   </span>
+                  {publicUser.username && (
+                    <span className="text-xs text-stone-400 font-semibold">
+                      @{publicUser.username}
+                    </span>
+                  )}
                   <span className="inline-flex items-center gap-1 text-[11px] text-stone-400">
                     <Calendar className="w-3 h-3" />
                     <span>Member since {publicJoinDate}</span>
@@ -235,6 +307,18 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                   {publicUser.bio || 'Passionate culinary explorer discovering artisan recipes, testing flavours, and sharing the love of food.'}
                 </p>
 
+                <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-stone-400 font-medium">
+                  <span>
+                    <strong className="text-white tabular-nums">{publicUser.followerCount || 0}</strong> Followers
+                  </span>
+                  <span>
+                    <strong className="text-white tabular-nums">{publicUserVideos.length}</strong> Videos
+                  </span>
+                  <span>
+                    <strong className="text-white tabular-nums">{publicUserRecipes.length}</strong> Recipes
+                  </span>
+                </div>
+
                 {publicUser.specialty && (
                   <div className="flex items-center gap-2 pt-1 text-xs text-amber-400 font-medium">
                     <Sparkles className="w-3.5 h-3.5" />
@@ -244,8 +328,21 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
               </div>
             </div>
 
-            {/* Quick Share, Report & Block CTA */}
+            {/* Quick Follow, Share, Report & Block CTA */}
             <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-white/10 shrink-0">
+              <button
+                type="button"
+                onClick={handleFollowPublicUser}
+                className={`px-5 py-3 rounded-xl font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer uppercase tracking-wider ${
+                  isFollowingPublic
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                    : 'bg-white text-stone-900 hover:bg-stone-100'
+                }`}
+              >
+                {isFollowingPublic ? <UserCheck className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                <span>{isFollowingPublic ? 'Following' : 'Follow'}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleShareMyProfile}
@@ -329,6 +426,32 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
           )}
         </section>
 
+        {/* Public Published Videos if any */}
+        {publicUserVideos.length > 0 && (
+          <section className="space-y-4">
+            <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
+              <Video className="w-5 h-5 text-amber-600" />
+              <span>Published Cooking Videos ({publicUserVideos.length})</span>
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {publicUserVideos.map((v) => (
+                <VideoCard
+                  key={v.id}
+                  video={v}
+                  creatorProfile={publicUser}
+                  onSelectChef={onSelectChef}
+                  onPlay={(vid) => onPlayVideo?.(vid)}
+                  onShare={onShareVideo}
+                  onCommentClick={onCommentVideo}
+                  onReport={onReportVideo}
+                  onRequestSubscribe={onRequestSubscribe}
+                  onOpenAuthModal={() => onOpenAuthModal('login')}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Public Shared Recipes if any */}
         {publicUserRecipes.length > 0 && (
           <section className="space-y-4">
@@ -337,7 +460,15 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {publicUserRecipes.map((r) => (
-                <RecipeCard key={r.id} recipe={r} onSelect={onSelectRecipe} />
+                <RecipeCard
+                  key={r.id}
+                  recipe={r}
+                  creatorProfile={publicUser}
+                  onSelect={onSelectRecipe}
+                  onSelectChef={onSelectChef}
+                  onOpenAuthModal={() => onOpenAuthModal('login')}
+                  onShare={onShareRecipe}
+                />
               ))}
             </div>
           </section>
@@ -469,13 +600,31 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                 </span>
               </div>
 
-              <h1 className="font-serif-display text-2xl sm:text-4xl font-bold text-white tracking-tight">
-                {userProfile.displayName}
-              </h1>
+              <div className="flex flex-wrap items-baseline gap-2.5">
+                <h1 className="font-serif-display text-2xl sm:text-4xl font-bold text-white tracking-tight">
+                  {userProfile.displayName}
+                </h1>
+                {userProfile.username && (
+                  <span className="text-xs font-semibold text-stone-400">
+                    @{userProfile.username}
+                  </span>
+                )}
+              </div>
 
               <p className="text-stone-300 text-xs sm:text-sm max-w-xl leading-relaxed">
                 {userProfile.bio || 'Passionate culinary explorer discovering artisan recipes, testing flavours, and sharing the love of food.'}
               </p>
+
+              <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-stone-400 font-medium">
+                <span>
+                  <strong className="text-white tabular-nums">{userProfile.followerCount || 0}</strong> Followers
+                </span>
+                <span>
+                  <strong className="text-white tabular-nums">
+                    {videos.filter(v => v.authorId === userProfile.id && (!v.status || v.status === 'published')).length}
+                  </strong> Published Videos
+                </span>
+              </div>
 
               {userProfile.specialty && (
                 <div className="flex items-center gap-2 pt-1 text-xs text-amber-400 font-medium">
@@ -675,10 +824,50 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                 <RecipeCard
                   key={recipe.id}
                   recipe={recipe}
+                  creatorProfile={creatorsMap?.[recipe.authorId]}
                   onSelect={onSelectRecipe}
                   onSelectChef={onSelectChef}
+                  onOpenAuthModal={() => onOpenAuthModal('login')}
+                  onShare={onShareRecipe}
                 />
               ))}
+            </div>
+          )}
+
+          {/* Creator's own published videos if any */}
+          {videos.filter(v => v.authorId === userProfile.id && (!v.status || v.status === 'published')).length > 0 && (
+            <div className="pt-8 border-t border-stone-200/80 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-serif-display text-xl sm:text-2xl font-bold text-stone-900 flex items-center gap-2">
+                  <Video className="w-5 h-5 text-amber-600" />
+                  <span>My Published Videos ({videos.filter(v => v.authorId === userProfile.id && (!v.status || v.status === 'published')).length})</span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('chef-upload-video')}
+                  className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Upload New Video</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {videos
+                  .filter(v => v.authorId === userProfile.id && (!v.status || v.status === 'published'))
+                  .map((v) => (
+                    <VideoCard
+                      key={v.id}
+                      video={v}
+                      creatorProfile={userProfile}
+                      onSelectChef={onSelectChef}
+                      onPlay={(vid) => onPlayVideo?.(vid)}
+                      onShare={onShareVideo}
+                      onCommentClick={onCommentVideo}
+                      onReport={onReportVideo}
+                      onRequestSubscribe={onRequestSubscribe}
+                    />
+                  ))}
+              </div>
             </div>
           )}
         </section>

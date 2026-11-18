@@ -35,7 +35,8 @@ import {
   SupportTicket,
   LiveSupportMessage,
   CommunitySettings,
-  CommunityReport
+  CommunityReport,
+  UserProfile
 } from '../types';
 import { isDummyOrAiAccountId, DUMMY_ACCOUNT_NAMES, isSeededAiRecipe } from '../data/starterRecipes';
 import { backupStoredVideos, clearAllStoredVideos } from '../lib/videoStorage';
@@ -299,17 +300,19 @@ export const RecipeService = {
     });
   },
 
-  // Add comment
-  async addComment(recipeId: string, comment: Omit<Comment, 'id' | 'createdAt'>): Promise<void> {
+  // Add comment (supports top-level comments and threaded replies)
+  async addComment(recipeId: string, comment: Omit<Comment, 'id' | 'createdAt'>): Promise<string | null> {
     const path = `recipes/${recipeId}/comments`;
     const newDocRef = doc(collection(db, 'recipes', recipeId, 'comments'));
     try {
-      await setDoc(newDocRef, {
+      await setDoc(newDocRef, cleanUndefined({
         ...comment,
         createdAt: new Date().toISOString()
-      });
+      }));
+      return newDocRef.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, path);
+      return null;
     }
   },
 
@@ -470,29 +473,29 @@ export const RecipeService = {
     }
   },
 
-  // Like a recipe
-  async likeRecipe(recipeId: string, currentLikes: number = 0): Promise<number> {
+  // Like or unlike a recipe (stores exact non-negative likesCount)
+  async likeRecipe(recipeId: string, nextLikesCount: number): Promise<number> {
     const docRef = doc(db, 'recipes', recipeId);
-    const newLikes = (currentLikes || 0) + 1;
+    const safeLikes = Math.max(0, Math.round(nextLikesCount));
     try {
-      await updateDoc(docRef, { likesCount: newLikes });
-      return newLikes;
+      await updateDoc(docRef, { likesCount: safeLikes });
+      return safeLikes;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `recipes/${recipeId}`);
-      return newLikes;
+      return safeLikes;
     }
   },
 
-  // Like a video
-  async likeVideo(videoId: string, currentLikes: number = 0): Promise<number> {
+  // Like or unlike a video (stores exact non-negative likesCount)
+  async likeVideo(videoId: string, nextLikesCount: number): Promise<number> {
     const docRef = doc(db, 'videos', videoId);
-    const newLikes = (currentLikes || 0) + 1;
+    const safeLikes = Math.max(0, Math.round(nextLikesCount));
     try {
-      await updateDoc(docRef, { likesCount: newLikes });
-      return newLikes;
+      await updateDoc(docRef, { likesCount: safeLikes });
+      return safeLikes;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `videos/${videoId}`);
-      return newLikes;
+      return safeLikes;
     }
   },
 
@@ -512,17 +515,19 @@ export const RecipeService = {
     });
   },
 
-  // Add video comment
-  async addVideoComment(videoId: string, comment: Omit<VideoComment, 'id' | 'createdAt'>): Promise<void> {
+  // Add video comment (supports threaded replies)
+  async addVideoComment(videoId: string, comment: Omit<VideoComment, 'id' | 'createdAt'>): Promise<string | null> {
     const path = `videos/${videoId}/comments`;
     const newDocRef = doc(collection(db, 'videos', videoId, 'comments'));
     try {
-      await setDoc(newDocRef, {
+      await setDoc(newDocRef, cleanUndefined({
         ...comment,
         createdAt: new Date().toISOString()
-      });
+      }));
+      return newDocRef.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, path);
+      return null;
     }
   },
 
@@ -780,6 +785,102 @@ export const RecipeService = {
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
     });
+  },
+
+  // Create a YouTube-style notification for a target user (non-blocking)
+  async createNotification(
+    targetUserId: string,
+    payload: Omit<UserNotification, 'id' | 'userId' | 'read' | 'createdAt'>
+  ): Promise<void> {
+    if (!targetUserId) return;
+    if (payload.actorId && payload.actorId === targetUserId) return;
+    try {
+      const newDocRef = doc(collection(db, 'users', targetUserId, 'notifications'));
+      await setDoc(
+        newDocRef,
+        cleanUndefined({
+          ...payload,
+          id: newDocRef.id,
+          userId: targetUserId,
+          read: false,
+          createdAt: new Date().toISOString(),
+        })
+      );
+    } catch (err) {
+      console.warn('Could not dispatch notification:', err);
+    }
+  },
+
+  // Notify all followers when a creator publishes a new video
+  async notifyFollowersOfNewVideo(video: {
+    id: string;
+    title: string;
+    authorId: string;
+    authorName: string;
+    authorPhoto?: string;
+  }): Promise<void> {
+    if (!video.authorId) return;
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const tasks: Promise<void>[] = [];
+      usersSnap.forEach((docSnap) => {
+        if (docSnap.id === video.authorId) return;
+        const data = docSnap.data() as Partial<UserProfile>;
+        if (isDummyOrAiAccountId(docSnap.id)) return;
+        const followsAuthor = Array.isArray(data.followedChefs)
+          ? data.followedChefs.some(
+              (f) => f.chefId === video.authorId && f.notificationPreference !== 'none'
+            )
+          : false;
+        if (followsAuthor) {
+          tasks.push(
+            this.createNotification(docSnap.id, {
+              type: 'new_video',
+              title: `${video.authorName} uploaded a new video`,
+              message: video.title,
+              chefId: video.authorId,
+              chefName: video.authorName,
+              actorId: video.authorId,
+              actorName: video.authorName,
+              actorPhoto: video.authorPhoto,
+              targetId: video.id,
+              targetType: 'video',
+              link: `video:${video.id}`,
+            })
+          );
+        }
+      });
+      await Promise.all(tasks);
+    } catch (err) {
+      console.warn('Could not notify followers of new video:', err);
+    }
+  },
+
+  // Subscribe to real-time directory of verified real creator profiles (excluding dummy/AI accounts)
+  listenToCreators(callback: (creatorsMap: Record<string, UserProfile>) => void) {
+    const usersRef = collection(db, 'users');
+    return onSnapshot(
+      usersRef,
+      (snapshot) => {
+        const map: Record<string, UserProfile> = {};
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as UserProfile & { isDummy?: boolean; isAiAccount?: boolean };
+          if (
+            isDummyOrAiAccountId(docSnap.id) ||
+            data?.isDummy === true ||
+            data?.isAiAccount === true ||
+            DUMMY_ACCOUNT_NAMES.has((data?.displayName || '').trim())
+          ) {
+            return;
+          }
+          map[docSnap.id] = { ...data, id: docSnap.id };
+        });
+        callback(map);
+      },
+      () => {
+        callback({});
+      }
+    );
   },
 
   // Mark single notification as read

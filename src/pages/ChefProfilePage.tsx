@@ -42,6 +42,9 @@ interface ChefProfilePageProps {
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup', role?: any) => void;
   onReportContent?: (target: ReportTarget) => void;
+  onCommentVideo?: (video: CookingVideo) => void;
+  onReportVideo?: (video: CookingVideo) => void;
+  onShareRecipe?: (recipe: Recipe) => void;
 }
 
 export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
@@ -52,7 +55,10 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
   onPlayVideo,
   onRequestSubscribe,
   onOpenAuthModal,
-  onReportContent
+  onReportContent,
+  onCommentVideo,
+  onReportVideo,
+  onShareRecipe
 }) => {
   const { currentUser, userProfile, isSubscribedToChef, isFollowingChef, toggleFollowChef, setPendingAction, blockedUserIds, blockUser, unblockUser } = useAuth();
   const [chefProfile, setChefProfile] = useState<UserProfile | null>(null);
@@ -288,12 +294,23 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
                 name={displayName}
                 size="2xl"
                 className="ring-4 ring-white shadow-md shrink-0 bg-stone-900"
+                showFollowButton
+                creatorId={chefId}
+                creatorName={displayName}
+                creatorPhoto={avatarUrl}
+                creatorSpecialty={chefProfile?.specialty}
+                onRequireAuth={() => onOpenAuthModal?.('login', 'user')}
               />
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-serif-display text-2xl sm:text-3xl font-bold text-stone-900">
                   {displayName}
                 </h1>
+                {chefProfile?.username && (
+                  <span className="text-xs font-semibold text-stone-500">
+                    @{chefProfile.username}
+                  </span>
+                )}
                 <span className="bg-amber-100 text-amber-800 text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
                   <ChefHat className="w-3.5 h-3.5" />
                   Verified Master Chef
@@ -331,7 +348,7 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
               </p>
 
               {/* Stats Strip */}
-              <div className="flex items-center gap-5 sm:gap-6 pt-1 text-xs text-stone-500 font-medium">
+              <div className="flex flex-wrap items-center gap-4 sm:gap-6 pt-1 text-xs text-stone-500 font-medium">
                 <div>
                   <strong className="text-stone-900 text-sm tabular-nums">
                     {chefProfile?.followerCount || 0}
@@ -341,6 +358,9 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
                   <strong className="text-stone-900 text-sm tabular-nums">
                     {chefProfile?.subscriberCount || 0}
                   </strong> VIP Members
+                </div>
+                <div>
+                  <strong className="text-stone-900 text-sm tabular-nums">{chefVideos.length}</strong> Videos
                 </div>
                 <div>
                   <strong className="text-stone-900 text-sm tabular-nums">{chefRecipes.length}</strong> Recipes
@@ -497,7 +517,10 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
                 <RecipeCard
                   key={recipe.id}
                   recipe={recipe}
+                  creatorProfile={chefProfile}
                   onSelect={onSelectRecipe}
+                  onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
+                  onShare={onShareRecipe}
                 />
               ))}
             </div>
@@ -521,10 +544,14 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
                   <MobileYouTubeVideoCard
                     key={video.id}
                     video={video}
+                    creatorProfile={chefProfile}
                     onPlay={onPlayVideo}
                     onShare={handleShareVideo}
+                    onCommentClick={onCommentVideo}
+                    onReport={onReportVideo}
                     onSelectChef={() => {}}
                     onRequestSubscribe={onRequestSubscribe}
+                    onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
                   />
                 ))}
               </div>
@@ -535,8 +562,11 @@ export const ChefProfilePage: React.FC<ChefProfilePageProps> = ({
                   <VideoCard
                     key={video.id}
                     video={video}
+                    creatorProfile={chefProfile}
                     onPlay={onPlayVideo}
                     onShare={handleShareVideo}
+                    onCommentClick={onCommentVideo}
+                    onReport={onReportVideo}
                     onRequestSubscribe={onRequestSubscribe}
                     onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
                   />
