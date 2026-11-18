@@ -10,8 +10,7 @@ import {
   ArrowLeft,
   Pin,
   Shield,
-  Lock,
-  Globe
+  Lock
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { CommunityChat } from '../../components/CommunityChat';
@@ -29,7 +28,6 @@ export const ChefCommunity: React.FC<ChefCommunityProps> = ({ onBack }) => {
     userProfile?.perks ||
     'Weekly live masterclasses, secret sauce chemistry notes, live Sunday cook-along, and direct Q&A in the VIP kitchen.'
   );
-  const [isPublicGroup, setIsPublicGroup] = useState(false);
   const [pinnedAnnouncement, setPinnedAnnouncement] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -38,7 +36,6 @@ export const ChefCommunity: React.FC<ChefCommunityProps> = ({ onBack }) => {
     if (!currentUser) return;
     RecipeService.getCommunitySettings(currentUser.uid).then((settings) => {
       if (settings) {
-        setIsPublicGroup(settings.isPublicGroup ?? false);
         setPinnedAnnouncement(settings.pinnedAnnouncement || '');
       }
     });
@@ -55,7 +52,7 @@ export const ChefCommunity: React.FC<ChefCommunityProps> = ({ onBack }) => {
 
       if (currentUser) {
         await RecipeService.updateCommunitySettings(currentUser.uid, {
-          isPublicGroup,
+          isPublicGroup: false,
           pinnedAnnouncement,
           rules: 'Be respectful, focus on culinary techniques, no hate speech or spam.'
         });
@@ -129,21 +126,13 @@ export const ChefCommunity: React.FC<ChefCommunityProps> = ({ onBack }) => {
               </div>
             )}
 
-            {/* Privacy Setting Toggle */}
+            {/* Privacy Setting */}
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider">
                 Group Privacy Level
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsPublicGroup(false)}
-                  className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
-                    !isPublicGroup
-                      ? 'border-amber-600 bg-amber-50/50 text-amber-900'
-                      : 'border-stone-200 hover:bg-stone-50 text-stone-600'
-                  }`}
-                >
+              <div className="grid grid-cols-1 gap-2">
+                <div className="p-3 rounded-xl border border-amber-600 bg-amber-50/50 text-amber-900 text-left flex flex-col gap-1">
                   <div className="flex items-center gap-1.5 font-bold text-xs">
                     <Lock className="w-3.5 h-3.5 text-amber-600" />
                     <span>VIP Only</span>
@@ -151,25 +140,7 @@ export const ChefCommunity: React.FC<ChefCommunityProps> = ({ onBack }) => {
                   <span className="text-[10px] text-stone-500 leading-tight">
                     Only paying subscribers can view and chat
                   </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsPublicGroup(true)}
-                  className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
-                    isPublicGroup
-                      ? 'border-amber-600 bg-amber-50/50 text-amber-900'
-                      : 'border-stone-200 hover:bg-stone-50 text-stone-600'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs">
-                    <Globe className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Open Circle</span>
-                  </div>
-                  <span className="text-[10px] text-stone-500 leading-tight">
-                    All registered food lovers can join discussion
-                  </span>
-                </button>
+                </div>
               </div>
             </div>
 
