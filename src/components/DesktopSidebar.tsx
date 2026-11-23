@@ -88,18 +88,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       icon: Bookmark,
       requiresAuth: false,
     },
-    ...(!isChef
-      ? [
-          {
-            id: 'video-studio',
-            view: 'chef-upload-video',
-            params: { openStudio: true },
-            label: 'Video Studio',
-            icon: Sliders,
-            requiresAuth: true,
-          },
-        ]
-      : []),
     { id: 'shopping-lists', label: 'Shopping Lists', icon: ShoppingCart, requiresAuth: false },
     { id: 'challenges', label: 'Challenges', icon: Trophy, requiresAuth: false },
     { id: 'user-profile', label: 'My Profile', icon: User, requiresAuth: true },
@@ -325,7 +313,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               const Icon = item.icon;
               const targetView = (item as any).view || item.id;
               const targetParams = (item as any).params;
-              const isActive = item.id !== 'video-studio' && currentView === targetView;
+              const isActive = currentView === targetView;
               return (
                 <button
                   key={item.id}
@@ -353,8 +341,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                       ? 'Profile'
                       : !isExpandedView && item.id === 'favourites'
                       ? 'Saved'
-                      : !isExpandedView && item.id === 'video-studio'
-                      ? 'Editor'
                       : item.label}
                   </span>
                 </button>

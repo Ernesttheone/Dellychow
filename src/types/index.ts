@@ -79,7 +79,7 @@ export interface Recipe {
   category: string;
   cuisine?: string;
   prepTimeMinutes?: number;
-  cookTimeMinutes: number;
+  cookTimeMinutes?: number;
   servings?: number;
   ingredients: string[];
   steps: string[];

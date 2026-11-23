@@ -28,6 +28,7 @@ import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
 import { VideoStudioService } from '../../services/videoStudioService';
 import { UserAvatar } from '../../components/UserAvatar';
+import { formatRecipeTotalTime } from '../../lib/recipeTime';
 
 interface ChefDashboardProps {
   recipes: Recipe[];
@@ -335,7 +336,7 @@ export const ChefDashboard: React.FC<ChefDashboardProps> = ({
                         <span className="truncate max-w-[200px]">{r.title}</span>
                       </td>
                       <td className="py-3 px-4 text-stone-600 capitalize">{r.category}</td>
-                      <td className="py-3 px-4 text-stone-600 tabular-nums">{r.cookTimeMinutes} mins</td>
+                      <td className="py-3 px-4 text-stone-600 tabular-nums">{formatRecipeTotalTime(r)}</td>
                       <td className="py-3 px-4">
                         {r.status === 'draft' ? (
                           <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">

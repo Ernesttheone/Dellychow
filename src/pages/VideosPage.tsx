@@ -124,14 +124,16 @@ export const VideosPage: React.FC<VideosPageProps> = ({
 
         {currentUser && (
           <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
-            <button
-              type="button"
-              onClick={() => onNavigate('chef-upload-video', { openStudio: true })}
-              className="px-4 py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
-            >
-              <Sliders className="w-4 h-4 text-amber-400" />
-              <span>Edit Video Studio</span>
-            </button>
+            {isChef && (
+              <button
+                type="button"
+                onClick={() => onNavigate('chef-upload-video', { openStudio: true })}
+                className="px-4 py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
+              >
+                <Sliders className="w-4 h-4 text-amber-400" />
+                <span>Edit Video Studio</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onNavigate('chef-upload-video')}

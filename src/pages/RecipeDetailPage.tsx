@@ -30,6 +30,7 @@ import { UserAvatar } from '../components/UserAvatar';
 import { RecipeCard } from '../components/RecipeCard';
 import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
 import { extractStepMinutes } from '../lib/recipeTimeUtils';
+import { formatMinutesLabel, getRecipeTimeBreakdown } from '../lib/recipeTime';
 import { ReportTarget } from '../components/ReportContentModal';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -615,42 +616,45 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
       </div>
 
       {/* Culinary Spec Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-5 rounded-2xl bg-white border border-stone-200/80 shadow-2xs text-center">
-        <div>
-          <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
-            Prep Time
-          </span>
-          <span className="font-serif-display text-xl font-bold text-stone-900 tabular-nums">
-            {recipe.prepTimeMinutes ? `${recipe.prepTimeMinutes} mins` : 'Chef Guided'}
-          </span>
-        </div>
-        <div className="border-l border-stone-100">
-          <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
-            Cook Time
-          </span>
-          <span className="font-serif-display text-xl font-bold text-stone-900 tabular-nums">
-            {recipe.cookTimeMinutes ? `${recipe.cookTimeMinutes} mins` : 'Chef Guided'}
-          </span>
-        </div>
-        <div className="border-l border-stone-100">
-          <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
-            Total Time
-          </span>
-          <span className="font-serif-display text-xl font-bold text-amber-700 tabular-nums">
-            {((recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0)) > 0 
-              ? `${(recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0)} mins`
-              : 'As Guided by Chef'}
-          </span>
-        </div>
-        <div className="border-l border-stone-100">
-          <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
-            Yield
-          </span>
-          <span className="font-serif-display text-xl font-bold text-stone-900 tabular-nums">
-            {currentServings} Servings
-          </span>
-        </div>
-      </div>
+      {(() => {
+        const { prepMinutes, cookMinutes, totalMinutes } = getRecipeTimeBreakdown(liveRecipe);
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-5 rounded-2xl bg-white border border-stone-200/80 shadow-2xs text-center">
+            <div>
+              <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
+                Prep Time
+              </span>
+              <span className={`font-serif-display font-bold text-stone-900 tabular-nums ${prepMinutes !== null ? 'text-xl' : 'text-sm sm:text-base text-stone-500'}`}>
+                {prepMinutes !== null ? formatMinutesLabel(prepMinutes) : 'Time not specified'}
+              </span>
+            </div>
+            <div className="border-l border-stone-100">
+              <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
+                Cook Time
+              </span>
+              <span className={`font-serif-display font-bold text-stone-900 tabular-nums ${cookMinutes !== null ? 'text-xl' : 'text-sm sm:text-base text-stone-500'}`}>
+                {cookMinutes !== null ? formatMinutesLabel(cookMinutes) : 'Time not specified'}
+              </span>
+            </div>
+            <div className="border-l border-stone-100">
+              <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
+                Total Time
+              </span>
+              <span className={`font-serif-display font-bold tabular-nums ${totalMinutes !== null ? 'text-xl text-amber-700' : 'text-sm sm:text-base text-stone-500'}`}>
+                {totalMinutes !== null ? formatMinutesLabel(totalMinutes) : 'Time not specified'}
+              </span>
+            </div>
+            <div className="border-l border-stone-100">
+              <span className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold block mb-1">
+                Yield
+              </span>
+              <span className="font-serif-display text-xl font-bold text-stone-900 tabular-nums">
+                {currentServings} Servings
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Video Demonstration Section if available */}
       {recipe.videoUrl && (

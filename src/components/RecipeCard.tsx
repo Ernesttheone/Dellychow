@@ -3,6 +3,7 @@ import { Bookmark, Clock, Star, PlayCircle, Lock, Heart, Share2 } from 'lucide-r
 import { Recipe, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar';
+import { formatRecipeTotalTime } from '../lib/recipeTime';
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -34,7 +35,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({
   const bookmarked = isRecipeBookmarked(recipe.id);
   const liked = isRecipeLiked(recipe.id);
   const hasCoverImage = Boolean(recipe.imageUrl && recipe.imageUrl.trim().length > 0) && !imageError;
-  const totalTime = (recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0);
+  const totalTimeLabel = formatRecipeTotalTime(recipe);
   const authorName = creatorProfile?.displayName || recipe.authorName;
   const authorPhoto = creatorProfile?.photoURL || recipe.authorPhoto;
   const followerCount = creatorProfile?.followerCount ?? 0;
@@ -173,8 +174,8 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({
             <span className="capitalize">{recipe.category}</span>
             <span aria-hidden="true">·</span>
             <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3 text-stone-400" />
-              {totalTime}m
+              <Clock className="w-3 h-3 text-stone-400 shrink-0" />
+              <span>{totalTimeLabel}</span>
             </span>
           </div>
 

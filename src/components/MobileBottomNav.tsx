@@ -212,29 +212,31 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 </div>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateSheetOpen(false);
-                  onNavigate('chef-upload-video', { openStudio: true });
-                }}
-                className="w-full p-3.5 rounded-2xl bg-stone-900 hover:bg-stone-800 border border-stone-800 flex items-center gap-3.5 text-left transition-all active:scale-98 text-white"
-              >
-                <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shrink-0 shadow-xs">
-                  <Sliders className="w-5 h-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm flex items-center gap-1.5">
-                    <span>Open Video Editing Studio</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-bold">
-                      PRO
-                    </span>
+              {isChef && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    onNavigate('chef-upload-video', { openStudio: true });
+                  }}
+                  className="w-full p-3.5 rounded-2xl bg-stone-900 hover:bg-stone-800 border border-stone-800 flex items-center gap-3.5 text-left transition-all active:scale-98 text-white"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shrink-0 shadow-xs">
+                    <Sliders className="w-5 h-5" />
                   </div>
-                  <p className="text-xs text-stone-300 mt-0.5">
-                    Trim, split, merge, voiceover, music, captions &amp; AI tools
-                  </p>
-                </div>
-              </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm flex items-center gap-1.5">
+                      <span>Open Video Editing Studio</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-bold">
+                        PRO
+                      </span>
+                    </div>
+                    <p className="text-xs text-stone-300 mt-0.5">
+                      Trim, split, merge, voiceover, music, captions &amp; AI tools
+                    </p>
+                  </div>
+                </button>
+              )}
 
               <button
                 type="button"

@@ -20,6 +20,7 @@ import { RecipeService } from '../../services/recipeService';
 import { ASSET_IMAGES } from '../../assets/images';
 import { processDeviceImage } from '../../lib/imageUtils';
 import { uploadVideoToFirebaseStorage, validateVideoFile } from '../../lib/videoStorage';
+import { formatMinutesLabel } from '../../lib/recipeTime';
 
 interface ChefCreateRecipeProps {
   recipeToEdit?: Recipe | null;
@@ -78,8 +79,13 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
   );
   const [newStep, setNewStep] = useState('');
 
-  // 6. Cooking Time (in minutes - as stated by Chef)
-  const [cookingTime, setCookingTime] = useState<number | string>(recipeToEdit?.cookTimeMinutes || '');
+  // 6. Preparation Time & Cooking Time (in minutes - optional, Total Time auto-calculated)
+  const [prepTime, setPrepTime] = useState<number | string>(
+    recipeToEdit?.prepTimeMinutes && recipeToEdit.prepTimeMinutes > 0 ? recipeToEdit.prepTimeMinutes : ''
+  );
+  const [cookingTime, setCookingTime] = useState<number | string>(
+    recipeToEdit?.cookTimeMinutes && recipeToEdit.cookTimeMinutes > 0 ? recipeToEdit.cookTimeMinutes : ''
+  );
 
   // 7. Food Category (e.g. Rice, Soups, Snacks, Drinks)
   const [category, setCategory] = useState<string>(recipeToEdit?.category || 'Rice');
@@ -184,8 +190,16 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
       return;
     }
 
-    if (!cookingTime || Number(cookingTime) < 1) {
-      setErrorMsg('Please specify the Cooking Time in minutes as stated for this meal.');
+    const parsedPrepTime =
+      prepTime === '' || prepTime === null ? 0 : Math.round(Number(prepTime));
+    const parsedCookTime =
+      cookingTime === '' || cookingTime === null ? 0 : Math.round(Number(cookingTime));
+
+    if (
+      (prepTime !== '' && (!Number.isFinite(parsedPrepTime) || parsedPrepTime < 0)) ||
+      (cookingTime !== '' && (!Number.isFinite(parsedCookTime) || parsedCookTime < 0))
+    ) {
+      setErrorMsg('Preparation Time and Cooking Time must be valid non-negative minutes.');
       return;
     }
 
@@ -221,7 +235,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
           title: recipeName.trim(),
           description: description.trim(),
           category: finalCategory,
-          cookTimeMinutes: Number(cookingTime),
+          prepTimeMinutes: parsedPrepTime > 0 ? parsedPrepTime : 0,
+          cookTimeMinutes: parsedCookTime > 0 ? parsedCookTime : 0,
           ingredients,
           steps,
           imageUrl: finalImageUrl,
@@ -237,7 +252,8 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
           description: description.trim(),
           category: finalCategory,
           cuisine: finalCategory === 'Rice' ? 'African / Continental' : 'Specialty',
-          cookTimeMinutes: Number(cookingTime),
+          prepTimeMinutes: parsedPrepTime > 0 ? parsedPrepTime : undefined,
+          cookTimeMinutes: parsedCookTime > 0 ? parsedCookTime : undefined,
           servings: 4,
           ingredients,
           steps,
@@ -515,47 +531,141 @@ export const ChefCreateRecipe: React.FC<ChefCreateRecipeProps> = ({
           </div>
         </div>
 
-        {/* 6. Cooking Time */}
-        <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-7 shadow-2xs space-y-3">
-          <label className="block text-xs font-bold text-stone-800 uppercase tracking-wider">
-            6. Cooking Time *
-          </label>
-          <p className="text-xs text-stone-500">How long it takes to prepare (in minutes).</p>
-          
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative w-40">
-              <input
-                type="number"
-                min={1}
-                max={480}
-                value={cookingTime}
-                onChange={(e) => setCookingTime(e.target.value === '' ? '' : Number(e.target.value))}
-                placeholder="e.g. 25"
-                className="w-full text-base font-semibold px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50 pr-12 tabular-nums"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-medium">
-                mins
-              </span>
+        {/* 6. Preparation & Cooking Time */}
+        <div className="bg-white rounded-3xl border border-stone-200/80 p-5 sm:p-7 shadow-2xs space-y-5">
+          <div>
+            <label className="block text-xs font-bold text-stone-800 uppercase tracking-wider">
+              6. Preparation &amp; Cooking Time (Optional)
+            </label>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Enter Preparation Time and Cooking Time in minutes. Total time is calculated automatically, or leave blank to show &quot;Time not specified&quot;.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {/* Preparation Time */}
+            <div className="space-y-2.5 p-4 rounded-2xl bg-stone-50/80 border border-stone-200/70">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="recipe-prep-time" className="text-xs font-bold text-stone-800">
+                  Preparation Time
+                </label>
+                {prepTime !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setPrepTime('')}
+                    className="text-[11px] font-semibold text-stone-500 hover:text-amber-700 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  id="recipe-prep-time"
+                  type="number"
+                  min={0}
+                  max={480}
+                  value={prepTime}
+                  onChange={(e) => setPrepTime(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                  placeholder="e.g. 10"
+                  className="w-full text-base font-semibold px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white pr-14 tabular-nums"
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-medium">
+                  mins
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[5, 10, 15, 20, 30].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setPrepTime(t)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                      Number(prepTime) === t
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+                    }`}
+                  >
+                    {t}m
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Quick Presets */}
-            <div className="flex items-center gap-2">
-              {[15, 30, 45, 60, 90].map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setCookingTime(t)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    cookingTime === t
-                      ? 'bg-amber-600 text-white'
-                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                  }`}
-                >
-                  {t}m
-                </button>
-              ))}
+            {/* Cooking Time */}
+            <div className="space-y-2.5 p-4 rounded-2xl bg-stone-50/80 border border-stone-200/70">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="recipe-cook-time" className="text-xs font-bold text-stone-800">
+                  Cooking Time
+                </label>
+                {cookingTime !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setCookingTime('')}
+                    className="text-[11px] font-semibold text-stone-500 hover:text-amber-700 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  id="recipe-cook-time"
+                  type="number"
+                  min={0}
+                  max={480}
+                  value={cookingTime}
+                  onChange={(e) => setCookingTime(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                  placeholder="e.g. 20"
+                  className="w-full text-base font-semibold px-4 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white pr-14 tabular-nums"
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-medium">
+                  mins
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[15, 20, 30, 45, 60].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setCookingTime(t)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                      Number(cookingTime) === t
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+                    }`}
+                  >
+                    {t}m
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          {/* Live Calculated Total Time */}
+          {(() => {
+            const p = prepTime !== '' && Number(prepTime) > 0 ? Math.round(Number(prepTime)) : 0;
+            const c = cookingTime !== '' && Number(cookingTime) > 0 ? Math.round(Number(cookingTime)) : 0;
+            const total = p + c;
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs">
+                <div className="flex items-center gap-2 font-semibold text-stone-800">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Total Time (Prep + Cooking):</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-amber-800 tabular-nums">
+                    {total > 0 ? formatMinutesLabel(total) : 'Time not specified'}
+                  </span>
+                  {p > 0 && c > 0 && (
+                    <span className="text-[11px] text-stone-500 tabular-nums">
+                      ({p} mins prep + {c} mins cook)
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* 7. Food Category */}

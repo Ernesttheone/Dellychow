@@ -1,7 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Search, SlidersHorizontal, X, Clock, Star, UtensilsCrossed } from 'lucide-react';
+import { Search, X, Clock, UtensilsCrossed } from 'lucide-react';
 import { Recipe, UserProfile } from '../types';
 import { RecipeCard } from '../components/RecipeCard';
+import {
+  COOKING_TIME_FILTERS,
+  CookingTimeFilterId,
+  getRecipeTotalMinutes,
+  matchesCookingTimeFilter,
+} from '../lib/recipeTime';
 
 interface ExplorePageProps {
   recipes: Recipe[];
@@ -26,8 +32,23 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>(
     initialCategory || 'all'
   );
+  const [selectedTimeFilter, setSelectedTimeFilter] = useState<CookingTimeFilterId>('all');
   const [selectedCuisine, setSelectedCuisine] = useState('all');
   const [sortBy, setSortBy] = useState<'newest' | 'rating' | 'time'>('newest');
+
+  const handleClearAllFilters = () => {
+    setSearchQuery('');
+    setSelectedCategory('all');
+    setSelectedTimeFilter('all');
+    setSelectedCuisine('all');
+  };
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+    selectedCategory !== 'all' ||
+    selectedTimeFilter !== 'all' ||
+    selectedCuisine !== 'all'
+  );
 
   // Dynamic categories including Rice, Soups, Snacks, Drinks, etc.
   const categories = useMemo(() => {
@@ -65,6 +86,10 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
       if (selectedCuisine !== 'all' && (r.cuisine || '').toLowerCase() !== selectedCuisine.toLowerCase()) {
         return false;
       }
+      // Cooking Time filter (Preparation Time + Cooking Time)
+      if (!matchesCookingTimeFilter(r, selectedTimeFilter)) {
+        return false;
+      }
       // Search query (checks meal name, cuisine, and ingredients!)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -82,14 +107,14 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
         return (b.ratingAverage || 0) - (a.ratingAverage || 0);
       }
       if (sortBy === 'time') {
-        const timeA = (a.prepTimeMinutes || 0) + (a.cookTimeMinutes || 0);
-        const timeB = (b.prepTimeMinutes || 0) + (b.cookTimeMinutes || 0);
+        const timeA = getRecipeTotalMinutes(a) ?? Number.MAX_SAFE_INTEGER;
+        const timeB = getRecipeTotalMinutes(b) ?? Number.MAX_SAFE_INTEGER;
         return timeA - timeB;
       }
       // Default: newest
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [recipes, selectedCategory, selectedCuisine, searchQuery, sortBy]);
+  }, [recipes, selectedCategory, selectedTimeFilter, selectedCuisine, searchQuery, sortBy]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -127,70 +152,98 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
       </div>
 
       {/* Filter and Sort Strip */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-2 border-b border-stone-200/80">
-        
-        {/* Category Tabs (Segmented Button Controls) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto no-scrollbar">
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
-                selectedCategory === cat.id
-                  ? 'bg-amber-600 text-white shadow-xs'
-                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50 hover:text-stone-900'
-              }`}
+      <div className="space-y-3 pb-3 border-b border-stone-200/80">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          
+          {/* Category Tabs (Segmented Button Controls) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 w-full md:w-auto no-scrollbar">
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 cursor-pointer ${
+                  selectedCategory === cat.id
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50 hover:text-stone-900'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Secondary Filters: Cuisine & Sorting */}
+          <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto justify-between sm:justify-end">
+            {/* Cuisine Filter */}
+            {cuisines.length > 0 && (
+              <select
+                value={selectedCuisine}
+                onChange={(e) => setSelectedCuisine(e.target.value)}
+                className="flex-1 sm:flex-none px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="all">All Cuisines</option>
+                {cuisines.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Sort Filter */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
-              {cat.label}
-            </button>
-          ))}
+              <option value="newest">Newest First</option>
+              <option value="rating">Highest Rated</option>
+              <option value="time">Quickest Cook Time</option>
+            </select>
+          </div>
         </div>
 
-        {/* Secondary Filters: Cuisine & Sorting */}
-        <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto justify-between sm:justify-end">
-          {/* Cuisine Filter */}
-          {cuisines.length > 0 && (
-            <select
-              value={selectedCuisine}
-              onChange={(e) => setSelectedCuisine(e.target.value)}
-              className="flex-1 sm:flex-none px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
-            >
-              <option value="all">All Cuisines</option>
-              {cuisines.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          )}
-
-          {/* Sort Filter */}
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium text-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+        {/* Separate Cooking Time Filter Strip */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-600 shrink-0">
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>Cooking Time:</span>
+          </div>
+          <div
+            role="group"
+            aria-label="Filter recipes by total cooking time"
+            className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 w-full no-scrollbar"
           >
-            <option value="newest">Newest First</option>
-            <option value="rating">Highest Rated</option>
-            <option value="time">Quickest Cook Time</option>
-          </select>
+            {COOKING_TIME_FILTERS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setSelectedTimeFilter(option.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 cursor-pointer ${
+                  selectedTimeFilter === option.id
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50 hover:text-stone-900'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Search Result Count */}
-      <div className="flex items-center justify-between text-xs text-stone-500">
+      <div className="flex items-center justify-between gap-3 text-xs text-stone-500">
         <span>
           Showing <strong className="text-stone-800 tabular-nums">{filteredRecipes.length}</strong> recipes
           {searchQuery && <> matching &quot;{searchQuery}&quot;</>}
         </span>
-        {(searchQuery || selectedCategory !== 'all' || selectedCuisine !== 'all') && (
+        {hasActiveFilters && (
           <button
-            onClick={() => {
-              setSearchQuery('');
-              setSelectedCategory('all');
-              setSelectedCuisine('all');
-            }}
-            className="text-amber-700 hover:underline font-medium"
+            type="button"
+            onClick={handleClearAllFilters}
+            className="text-amber-700 hover:underline font-semibold cursor-pointer shrink-0"
           >
-            Reset Filters
+            Clear Filters
           </button>
         )}
       </div>
@@ -205,15 +258,12 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
             No Matching Recipes Found
           </h3>
           <p className="text-xs text-stone-500 leading-relaxed">
-            We couldn&apos;t find any recipes matching your current filter criteria. Try searching for broader ingredients or clearing your category selection.
+            We couldn&apos;t find any recipes matching your current filter criteria. Try adjusting your cooking time, searching broader ingredients, or clearing your filters.
           </p>
           <button
-            onClick={() => {
-              setSearchQuery('');
-              setSelectedCategory('all');
-              setSelectedCuisine('all');
-            }}
-            className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition-colors"
+            type="button"
+            onClick={handleClearAllFilters}
+            className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer"
           >
             Clear All Filters
           </button>

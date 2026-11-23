@@ -63,10 +63,11 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
   onPlayVideo
 }) => {
   const { currentUser, userProfile } = useAuth();
+  const isChef = userProfile?.role === 'chef';
 
-  // Video Editing Studio Mode
+  // Video Editing Studio Mode (Chefs only)
   const [studioMode, setStudioMode] = useState<boolean>(
-    Boolean(openStudioByDefault || initialStudioProject)
+    Boolean(isChef && (openStudioByDefault || initialStudioProject))
   );
   const [editingVideoId, setEditingVideoId] = useState<string | null>(initialEditVideo?.id || null);
   const [replaceOriginalTarget, setReplaceOriginalTarget] = useState<boolean>(false);
@@ -255,10 +256,12 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         setCustomVideoUrl(initialEditVideo.videoUrl);
         setActiveMode('url');
       }
-      if (openStudioByDefault) {
+      if (isChef && openStudioByDefault) {
         setStudioMode(true);
+      } else if (!isChef) {
+        setStudioMode(false);
       }
-    } else if (initialStudioProject) {
+    } else if (initialStudioProject && isChef) {
       setTitle(initialStudioProject.title || '');
       setDescription(initialStudioProject.description || '');
       setCategory(initialStudioProject.category || 'Technique');
@@ -266,10 +269,12 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
         setThumbnailUrl(initialStudioProject.thumbnailUrl);
       }
       setStudioMode(true);
-    } else if (openStudioByDefault) {
+    } else if (isChef && openStudioByDefault) {
       setStudioMode(true);
+    } else if (!isChef) {
+      setStudioMode(false);
     }
-  }, [initialEditVideo, initialStudioProject, openStudioByDefault]);
+  }, [initialEditVideo, initialStudioProject, openStudioByDefault, isChef]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -871,7 +876,7 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
     { num: 4, title: 'Publish', desc: 'Upload & preview' }
   ];
 
-  if (studioMode) {
+  if (isChef && studioMode) {
     return (
       <VideoEditingStudio
         initialProject={initialStudioProject || undefined}
@@ -1046,10 +1051,12 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
             <div>
               <h2 className="font-serif-display text-xl font-bold text-stone-900 flex items-center gap-2">
                 <Film className="w-5 h-5 text-amber-600" />
-                <span>Step 1: Video Source &amp; Editing Studio</span>
+                <span>{isChef ? 'Step 1: Video Source & Editing Studio' : 'Step 1: Video Source'}</span>
               </h2>
               <p className="text-xs text-stone-500 mt-0.5">
-                Record live in-browser, upload a cooking video, or launch the full Video Editing Studio.
+                {isChef
+                  ? 'Record live in-browser, upload a cooking video, or launch the full Video Editing Studio.'
+                  : 'Record live in-browser or upload a cooking video from your device.'}
               </p>
             </div>
 
@@ -1062,17 +1069,19 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  stopCameraStream();
-                  setStudioMode(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Open Video Editing Studio</span>
-              </button>
+              {isChef && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopCameraStream();
+                    setStudioMode(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Open Video Editing Studio</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1592,14 +1601,16 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 <div className="pt-2 border-t border-stone-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-[11px] text-stone-400">Stream preview:</p>
-                    <button
-                      type="button"
-                      onClick={() => setStudioMode(true)}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Sliders className="w-3.5 h-3.5" />
-                      <span>Open in Video Studio</span>
-                    </button>
+                    {isChef && (
+                      <button
+                        type="button"
+                        onClick={() => setStudioMode(true)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                        <span>Open in Video Studio</span>
+                      </button>
+                    )}
                   </div>
                   <div className="aspect-16/9 bg-black rounded-xl overflow-hidden border border-stone-800 max-h-56">
                     {customVideoUrl.includes('youtube.com') || customVideoUrl.includes('youtu.be') ? (
@@ -1657,14 +1668,16 @@ export const ChefUploadVideo: React.FC<ChefUploadVideoProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setStudioMode(true)}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>Open in Video Studio</span>
-                  </button>
+                  {isChef && (
+                    <button
+                      type="button"
+                      onClick={() => setStudioMode(true)}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>Open in Video Studio</span>
+                    </button>
+                  )}
 
                   {activeMode === 'record' ? (
                     <button

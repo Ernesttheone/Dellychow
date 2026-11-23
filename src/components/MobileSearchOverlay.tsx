@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { CookingVideo, Recipe } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { formatRecipeTotalTime } from '../lib/recipeTime';
 
 interface MobileSearchOverlayProps {
   isOpen: boolean;
@@ -428,7 +429,7 @@ export const MobileSearchOverlay: React.FC<MobileSearchOverlayProps> = ({
                             {recipe.title}
                           </h4>
                           <span className="text-[11px] text-stone-500 block truncate">
-                            By {recipe.authorName} • {recipe.cookTimeMinutes} mins
+                            By {recipe.authorName} • {formatRecipeTotalTime(recipe)}
                           </span>
                         </div>
                       </div>

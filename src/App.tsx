@@ -428,10 +428,11 @@ function AppContent() {
       }
     }
     if (view === 'chef-upload-video') {
+      const isChefUser = userProfile?.role === 'chef';
       setUploadVideoContext({
         editVideo: params?.editVideo || null,
-        studioProject: params?.studioProject || null,
-        openStudio: Boolean(params?.openStudio),
+        studioProject: isChefUser ? (params?.studioProject || null) : null,
+        openStudio: isChefUser && Boolean(params?.openStudio),
       });
     } else {
       setUploadVideoContext(null);
@@ -774,8 +775,8 @@ function AppContent() {
           <ChefUploadVideo
             recipes={recipes}
             initialEditVideo={uploadVideoContext?.editVideo || null}
-            initialStudioProject={uploadVideoContext?.studioProject || null}
-            openStudioByDefault={Boolean(uploadVideoContext?.openStudio)}
+            initialStudioProject={userProfile?.role === 'chef' ? (uploadVideoContext?.studioProject || null) : null}
+            openStudioByDefault={userProfile?.role === 'chef' && Boolean(uploadVideoContext?.openStudio)}
             onBack={() => {
               setUploadVideoContext(null);
               setCurrentView(userProfile?.role === 'chef' ? 'chef-dashboard' : 'videos');

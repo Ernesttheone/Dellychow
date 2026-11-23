@@ -14,6 +14,7 @@ import {
 import { Recipe } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { RecipeService } from '../../services/recipeService';
+import { formatRecipeTotalTime } from '../../lib/recipeTime';
 
 interface ChefMyRecipesProps {
   recipes: Recipe[];
@@ -241,7 +242,7 @@ export const ChefMyRecipes: React.FC<ChefMyRecipesProps> = ({
                     <span>·</span>
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      <span>{recipe.cookTimeMinutes} mins</span>
+                      <span>{formatRecipeTotalTime(recipe)}</span>
                     </span>
                   </div>
 
