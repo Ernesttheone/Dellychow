@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Clock, 
   Users, 
@@ -19,13 +19,15 @@ import {
   Flag,
   Heart,
   CornerDownRight,
-  X
+  X,
+  UtensilsCrossed
 } from 'lucide-react';
 import { Recipe, RecipeRating, Comment, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { RecipeService } from '../services/recipeService';
 import { CookingTimer } from '../components/CookingTimer';
 import { UserAvatar } from '../components/UserAvatar';
+import { RecipeCard } from '../components/RecipeCard';
 import { resolveVideoUrl, checkServerStreamExists } from '../lib/videoStorage';
 import { extractStepMinutes } from '../lib/recipeTimeUtils';
 import { ReportTarget } from '../components/ReportContentModal';
@@ -34,24 +36,32 @@ import { db } from '../lib/firebase';
 
 interface RecipeDetailPageProps {
   recipe: Recipe;
+  recipes?: Recipe[];
   creatorProfile?: UserProfile;
+  creatorsMap?: Record<string, UserProfile>;
   onBack: () => void;
+  onSelectRecipe?: (recipe: Recipe) => void;
   onSelectChef: (chefId: string) => void;
   onRequestSubscribe: (chefId: string, chefName: string) => void;
   onOpenAuthModal?: (mode?: 'login' | 'signup', role?: any) => void;
   onAddToShoppingList?: (recipe: Recipe) => void;
   onReportContent?: (target: ReportTarget) => void;
+  onShareRecipe?: (recipe: Recipe) => void;
 }
 
 export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   recipe,
+  recipes = [],
   creatorProfile,
+  creatorsMap,
   onBack,
+  onSelectRecipe,
   onSelectChef,
   onRequestSubscribe,
   onOpenAuthModal,
   onAddToShoppingList,
-  onReportContent
+  onReportContent,
+  onShareRecipe
 }) => {
   const {
     currentUser,
@@ -86,6 +96,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string>('');
   const [heroImageError, setHeroImageError] = useState(false);
+  const [relatedFilter, setRelatedFilter] = useState<string>('all');
 
   // Resolve cooking video URL for all devices and users
   useEffect(() => {
@@ -110,6 +121,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   useEffect(() => {
     setLiveRecipe(recipe);
     setHeroImageError(false);
+    setRelatedFilter('all');
     const unsubDoc = onSnapshot(doc(db, 'recipes', recipe.id), (snap) => {
       if (snap.exists()) {
         setLiveRecipe({ id: snap.id, ...(snap.data() as Omit<Recipe, 'id'>) });
@@ -171,6 +183,96 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
 
   const baseServings = recipe.servings || 4;
   const currentServings = Math.max(1, Math.round(baseServings * servingsMultiplier));
+
+  // Related recipes from the same creator or food category
+  const otherPublishedRecipes = useMemo(() => {
+    return recipes.filter(
+      (r) =>
+        r.id !== liveRecipe.id &&
+        (!r.status || r.status === 'published') &&
+        !blockedUserIds.includes(r.authorId)
+    );
+  }, [recipes, liveRecipe.id, blockedUserIds]);
+
+  const currentCategoryNorm = (liveRecipe.category || '').trim().toLowerCase();
+
+  const relatedFilterOptions = useMemo(() => {
+    const creatorCount = otherPublishedRecipes.filter(
+      (r) => r.authorId === liveRecipe.authorId
+    ).length;
+
+    const sameCategoryCount = currentCategoryNorm
+      ? otherPublishedRecipes.filter(
+          (r) => (r.category || '').trim().toLowerCase() === currentCategoryNorm
+        ).length
+      : 0;
+
+    const allRelatedCount = otherPublishedRecipes.filter(
+      (r) =>
+        r.authorId === liveRecipe.authorId ||
+        (currentCategoryNorm && (r.category || '').trim().toLowerCase() === currentCategoryNorm)
+    ).length;
+
+    const options: Array<{ id: string; label: string; count: number }> = [
+      { id: 'all', label: 'All Related', count: allRelatedCount },
+      { id: 'creator', label: `More by ${authorName}`, count: creatorCount },
+    ];
+
+    if (liveRecipe.category?.trim()) {
+      const catLabel =
+        liveRecipe.category.trim().charAt(0).toUpperCase() +
+        liveRecipe.category.trim().slice(1);
+      options.push({
+        id: `cat:${currentCategoryNorm}`,
+        label: catLabel,
+        count: sameCategoryCount,
+      });
+    }
+
+    const extraCategoryMap = new Map<string, { label: string; count: number }>();
+    otherPublishedRecipes.forEach((r) => {
+      const raw = (r.category || '').trim();
+      const norm = raw.toLowerCase();
+      if (!raw || norm === currentCategoryNorm) return;
+      const existing = extraCategoryMap.get(norm);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        extraCategoryMap.set(norm, {
+          label: raw.charAt(0).toUpperCase() + raw.slice(1),
+          count: 1,
+        });
+      }
+    });
+
+    extraCategoryMap.forEach((info, norm) => {
+      options.push({
+        id: `cat:${norm}`,
+        label: info.label,
+        count: info.count,
+      });
+    });
+
+    return options;
+  }, [otherPublishedRecipes, liveRecipe.authorId, liveRecipe.category, currentCategoryNorm, authorName]);
+
+  const filteredRelatedRecipes = useMemo(() => {
+    if (relatedFilter === 'creator') {
+      return otherPublishedRecipes.filter((r) => r.authorId === liveRecipe.authorId);
+    }
+    if (relatedFilter.startsWith('cat:')) {
+      const targetCat = relatedFilter.slice(4);
+      return otherPublishedRecipes.filter(
+        (r) => (r.category || '').trim().toLowerCase() === targetCat
+      );
+    }
+    // 'all': related by same creator OR same food category
+    return otherPublishedRecipes.filter(
+      (r) =>
+        r.authorId === liveRecipe.authorId ||
+        (currentCategoryNorm && (r.category || '').trim().toLowerCase() === currentCategoryNorm)
+    );
+  }, [otherPublishedRecipes, relatedFilter, liveRecipe.authorId, currentCategoryNorm]);
 
   const toggleIngredient = (index: number) => {
     setCheckedIngredients(prev => ({ ...prev, [index]: !prev[index] }));
@@ -1057,6 +1159,90 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
         </div>
 
       </div>
+
+      {/* Related Recipes by Creator or Food Category */}
+      {otherPublishedRecipes.length > 0 && (
+        <section className="pt-8 border-t border-stone-200/80 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-1.5 text-xs text-amber-700 font-semibold uppercase tracking-wider mb-1">
+                <UtensilsCrossed className="w-3.5 h-3.5" />
+                <span>Discover More Dishes</span>
+              </div>
+              <h2 className="font-serif-display text-2xl font-bold text-stone-900 tracking-tight">
+                Related Recipes
+              </h2>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Filter by creator or food category to explore similar dishes.
+              </p>
+            </div>
+          </div>
+
+          {/* Creator & Food Category Filter Chips */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            {relatedFilterOptions.map((opt) => {
+              const isSelected = relatedFilter === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setRelatedFilter(opt.id)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 inline-flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-white border border-stone-200 text-stone-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full tabular-nums ${
+                      isSelected
+                        ? 'bg-white/20 text-white'
+                        : 'bg-stone-100 text-stone-500'
+                    }`}
+                  >
+                    {opt.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {filteredRelatedRecipes.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-white border border-stone-200/80 text-center space-y-2.5">
+              <p className="font-serif-display text-base font-bold text-stone-800">
+                No related recipes in this filter yet
+              </p>
+              <p className="text-xs text-stone-500">
+                Try another food category or view all related recipes.
+              </p>
+              {relatedFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setRelatedFilter('all')}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Show All Related
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredRelatedRecipes.slice(0, 6).map((relRecipe) => (
+                <RecipeCard
+                  key={relRecipe.id}
+                  recipe={relRecipe}
+                  creatorProfile={creatorsMap?.[relRecipe.authorId]}
+                  onSelect={(r) => onSelectRecipe?.(r)}
+                  onSelectChef={onSelectChef}
+                  onOpenAuthModal={() => onOpenAuthModal?.('login', 'user')}
+                  onShare={onShareRecipe}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
     </div>
   );

@@ -107,7 +107,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   ];
 
   const renderNavContent = (isExpandedView: boolean) => (
-    <div className="flex flex-col h-full overflow-y-auto overflow-x-hidden py-3 px-2.5 space-y-4">
+    <div className="flex flex-col flex-1 min-h-0 h-full overflow-y-auto overflow-x-hidden overscroll-y-contain py-3 px-2.5 space-y-4">
       {/* 1. Primary Feature Selection Roll */}
       <div className="space-y-1">
         {primaryItems.map((item) => {
@@ -469,7 +469,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       {/* Desktop Persistent Collapsible Left Sidebar (lg: 1024px+) */}
       <aside
         aria-label="Primary Sidebar Navigation"
-        className={`hidden lg:block shrink-0 sticky top-16 h-[calc(100vh-4rem)] border-r border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2]/90 dark:bg-[#141210]/95 backdrop-blur-sm transition-[width] duration-200 ease-out z-30 ${
+        className={`hidden lg:flex lg:flex-col self-start shrink-0 sticky top-16 h-[calc(100vh-4rem)] max-h-[calc(100dvh-4rem)] overflow-hidden border-r border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2]/90 dark:bg-[#141210]/95 backdrop-blur-sm transition-[width] duration-200 ease-out z-30 ${
           collapsed ? 'w-[76px]' : 'w-60'
         }`}
       >
@@ -479,7 +479,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       {/* Tablet Mini Rail (md: 768px - 1023px) */}
       <aside
         aria-label="Compact Sidebar Navigation"
-        className="hidden md:block lg:hidden shrink-0 sticky top-16 h-[calc(100vh-4rem)] w-[76px] border-r border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2]/90 dark:bg-[#141210]/95 backdrop-blur-sm z-30"
+        className="hidden md:flex md:flex-col lg:hidden self-start shrink-0 sticky top-16 h-[calc(100vh-4rem)] max-h-[calc(100dvh-4rem)] overflow-hidden w-[76px] border-r border-stone-200/80 dark:border-stone-800 bg-[#FAF7F2]/90 dark:bg-[#141210]/95 backdrop-blur-sm z-30"
       >
         {renderNavContent(false)}
       </aside>
@@ -510,7 +510,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">{renderNavContent(true)}</div>
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{renderNavContent(true)}</div>
           </div>
         </div>
       )}

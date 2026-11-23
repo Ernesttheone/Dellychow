@@ -491,7 +491,7 @@ function AppContent() {
   const publicVideos = videos.filter(v => !v.status || v.status === 'published');
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col bg-[#FAF7F2] text-stone-900 font-sans selection:bg-amber-500 selection:text-white">
+    <div className="min-h-screen w-full max-w-full overflow-x-clip flex flex-col bg-[#FAF7F2] text-stone-900 font-sans selection:bg-amber-500 selection:text-white">
       {/* Custom Brand Logo Reveal & Utensil-Joining Loading Screen */}
       <DeliChowSplashLoader isLoading={loadingContent} />
 
@@ -595,13 +595,17 @@ function AppContent() {
         {currentView === 'recipe-detail' && selectedRecipe && (
           <RecipeDetailPage
             recipe={selectedRecipe}
+            recipes={publicRecipes}
             creatorProfile={creatorsMap[selectedRecipe.authorId]}
+            creatorsMap={creatorsMap}
             onBack={() => setCurrentView('explore')}
+            onSelectRecipe={handleSelectRecipe}
             onSelectChef={handleSelectChef}
             onRequestSubscribe={handleOpenSubscribe}
             onOpenAuthModal={handleOpenAuthModal}
             onAddToShoppingList={handleAddToShoppingList}
             onReportContent={(target) => setReportTarget(target)}
+            onShareRecipe={handleShareRecipe}
           />
         )}
 
