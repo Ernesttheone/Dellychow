@@ -484,7 +484,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
     );
   }
 
-  if (!currentUser || !userProfile) {
+  if (!currentUser) {
     return (
       <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
         <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-2xs">
@@ -512,6 +512,15 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
             Create Account
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (!userProfile) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-center space-y-3">
+        <div className="w-10 h-10 rounded-full border-2 border-amber-600 border-t-transparent animate-spin mx-auto" />
+        <p className="text-xs text-stone-500">Loading your culinary profile...</p>
       </div>
     );
   }

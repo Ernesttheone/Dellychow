@@ -100,6 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const {
     currentUser,
     userProfile,
+    loading: authLoading,
     signOut,
     favourites,
     followedChefs,
@@ -662,7 +663,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
             {/* User Profile Dropdown or Auth Buttons */}
-            {currentUser && userProfile ? (
+            {currentUser ? (
               <div className="relative">
                 <button
                   type="button"
@@ -675,18 +676,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   aria-expanded={userDropdownOpen}
                 >
                   <UserAvatar
-                    src={userProfile.photoURL}
-                    name={userProfile.displayName}
-                    seed={userProfile.id}
+                    src={userProfile?.photoURL || currentUser.photoURL || undefined}
+                    name={userProfile?.displayName || currentUser.displayName || 'Account'}
+                    seed={userProfile?.id || currentUser.uid}
                     size="sm"
                     className="ring-2 ring-amber-500/20"
                   />
                   <div className="hidden xl:block text-left pr-1">
                     <p className="text-xs font-semibold text-stone-900 dark:text-stone-100 leading-tight truncate max-w-[100px]">
-                      {userProfile.displayName}
+                      {userProfile?.displayName || currentUser.displayName || 'Account'}
                     </p>
                     <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium capitalize">
-                      {userProfile.role === 'chef' ? 'Head Chef' : 'Food Lover'}
+                      {userProfile?.role === 'chef' ? 'Head Chef' : 'Food Lover'}
                     </p>
                   </div>
                   <ChevronDown className="hidden sm:block w-4 h-4 text-stone-400 mr-1" />
@@ -805,7 +806,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 )}
               </div>
-            ) : (
+            ) : !authLoading ? (
               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                 <button
                   type="button"
@@ -823,7 +824,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="sm:hidden">Sign In</span>
                 </button>
               </div>
-            )}
+            ) : null}
 
             {/* Mobile Collapsible Navigation Menu Toggle */}
             <button
@@ -933,7 +934,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          {!currentUser && (
+          {!currentUser && !authLoading && (
             <div className="pt-2 space-y-2 border-t border-stone-200 dark:border-stone-800">
               <button
                 type="button"
